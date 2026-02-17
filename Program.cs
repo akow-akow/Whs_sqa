@@ -13,213 +13,186 @@ namespace Ak0Analyzer
     public class MainForm : Form
     {
         private CheckedListBox clbWarehouses;
-        private Button btnRun;
-        private Button btnSelectFolder;
+        private Button btnRun, btnSelectFolder, btnLoadSchedule;
         private Label lblStatus;
         private List<(string Path, DateTime Date)> sortedFiles;
         private string selectedFolderPath = "";
+        private Dictionary<(string Loc, int Day), string> staffSchedule = new Dictionary<(string, int), string>();
 
         public MainForm()
         {
-            this.Text = "Warehouse Scan Quality Analysis";
-            this.Size = new System.Drawing.Size(500, 650);
+            this.Text = "Warehouse Scan Quality Analysis PRO";
+            this.Size = new System.Drawing.Size(550, 750);
             this.StartPosition = FormStartPosition.CenterScreen;
 
-            // Ładowanie ikony z zasobów (musi być skonfigurowane w .csproj)
-            try
-            {
+            try {
                 var assembly = Assembly.GetExecutingAssembly();
                 using (Stream stream = assembly.GetManifestResourceStream("AppIcon.ico"))
-                {
                     if (stream != null) this.Icon = new System.Drawing.Icon(stream);
-                }
-            }
-            catch { }
+            } catch { }
 
-            // Przycisk wyboru folderu
-            btnSelectFolder = new Button() { 
-                Text = "📁 WYBIERZ FOLDER Z PLIKAMI AK0", 
-                Dock = DockStyle.Top, 
-                Height = 60,
-                BackColor = System.Drawing.Color.FromArgb(230, 240, 250),
-                Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold),
-                FlatStyle = FlatStyle.Flat
-            };
-            btnSelectFolder.FlatAppearance.BorderColor = System.Drawing.Color.SteelBlue;
+            // Panel przycisków górnych
+            FlowLayoutPanel topPanel = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 130 };
+
+            btnSelectFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER AK0", Size = new System.Drawing.Size(260, 60), BackColor = System.Drawing.Color.LightSkyBlue, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
             btnSelectFolder.Click += (s, e) => SelectFolder();
 
-            Label lbl = new Label() { 
-                Text = "Lokalizacje typu 'I' znalezione w folderze:", 
-                Dock = DockStyle.Top, 
-                Height = 35, 
-                TextAlign = System.Drawing.ContentAlignment.BottomLeft,
-                Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Italic)
-            };
+            btnLoadSchedule = new Button() { Text = "📅 2. WCZYTAJ GRAFIK", Size = new System.Drawing.Size(260, 60), BackColor = System.Drawing.Color.NavajoWhite, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
+            btnLoadSchedule.Click += (s, e) => LoadScheduleWindow();
 
-            // Lista magazynów
-            clbWarehouses = new CheckedListBox() { 
-                Dock = DockStyle.Fill, 
-                CheckOnClick = true,
-                Font = new System.Drawing.Font("Segoe UI", 10),
-                BorderStyle = BorderStyle.FixedSingle
-            };
+            topPanel.Controls.Add(btnSelectFolder);
+            topPanel.Controls.Add(btnLoadSchedule);
 
-            // Przycisk generowania
-            btnRun = new Button() { 
-                Text = "🚀 GENERUJ RAPORT BRAKÓW", 
-                Dock = DockStyle.Bottom, 
-                Height = 70, 
-                BackColor = System.Drawing.Color.FromArgb(200, 230, 201),
-                Enabled = false,
-                Font = new System.Drawing.Font("Segoe UI", 11, System.Drawing.FontStyle.Bold),
-                FlatStyle = FlatStyle.Flat
-            };
-            btnRun.FlatAppearance.BorderColor = System.Drawing.Color.ForestGreen;
+            clbWarehouses = new CheckedListBox() { Dock = DockStyle.Fill, CheckOnClick = true, Font = new System.Drawing.Font("Segoe UI", 10), BorderStyle = BorderStyle.FixedSingle };
+            btnRun = new Button() { Text = "🚀 3. GENERUJ RAPORT Z GRAFIKIEM", Dock = DockStyle.Bottom, Height = 70, BackColor = System.Drawing.Color.LightGreen, Enabled = false, Font = new System.Drawing.Font("Segoe UI", 11, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
             btnRun.Click += BtnRun_Click;
 
-            // Status bar
-            lblStatus = new Label() { 
-                Text = "Status: Oczekiwanie na folder...", 
-                Dock = DockStyle.Bottom, 
-                Height = 35, 
-                TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
-                BackColor = System.Drawing.Color.WhiteSmoke,
-                BorderStyle = BorderStyle.FixedSingle
-            };
+            lblStatus = new Label() { Text = "Wybierz folder i wgraj grafik...", Dock = DockStyle.Bottom, Height = 40, TextAlign = System.Drawing.ContentAlignment.MiddleCenter, BackColor = System.Drawing.Color.WhiteSmoke, BorderStyle = BorderStyle.FixedSingle };
 
             this.Controls.Add(clbWarehouses);
-            this.Controls.Add(lbl);
-            this.Controls.Add(btnSelectFolder);
+            this.Controls.Add(new Label() { Text = "Magazyny (Lokalizacje 'I'):", Dock = DockStyle.Top, Height = 25 });
+            this.Controls.Add(topPanel);
             this.Controls.Add(lblStatus);
             this.Controls.Add(btnRun);
         }
 
+        private void LoadScheduleWindow()
+        {
+            Form f = new Form() { Text = "Wklej dane grafiku (Ctrl+V)", Size = new System.Drawing.Size(600, 400), StartPosition = FormStartPosition.CenterParent };
+            TextBox tb = new TextBox() { Multiline = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both };
+            Button btnSave = new Button() { Text = "ZAPISZ GRAFIK", Dock = DockStyle.Bottom, Height = 50, BackColor = System.Drawing.Color.PaleGreen };
+            
+            btnSave.Click += (s, e) => {
+                ParseSchedule(tb.Text);
+                f.Close();
+            };
+            f.Controls.Add(tb);
+            f.Controls.Add(btnSave);
+            f.ShowDialog();
+        }
+
+        private void ParseSchedule(string data)
+        {
+            staffSchedule.Clear();
+            var lines = data.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length < 2) return;
+
+            var daysHeader = lines[0].Split('\t'); // Dni miesiąca (A1, B1...)
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var cols = lines[i].Split('\t');
+                if (cols.Length < 2) continue;
+
+                string rawLoc = cols[0].ToLower();
+                string mappedLoc = MapLocationName(rawLoc);
+
+                for (int dayIdx = 1; dayIdx < cols.Length; dayIdx++)
+                {
+                    if (int.TryParse(daysHeader[dayIdx], out int dayNum))
+                    {
+                        string person = cols[dayIdx].Trim();
+                        if (!string.IsNullOrEmpty(person))
+                        {
+                            staffSchedule[(mappedLoc, dayNum)] = person;
+                            // Obsługa Smalls dla obu magazynów
+                            if (mappedLoc == "IWMSMALLS1") staffSchedule[("IWMSMALLSXX", dayNum)] = person;
+                        }
+                    }
+                }
+            }
+            lblStatus.Text = "Grafik wczytany poprawnie!";
+        }
+
+        private string MapLocationName(string raw)
+        {
+            if (raw.Contains("100")) return "IWMAG100";
+            if (raw.Contains("mag")) {
+                var num = Regex.Match(raw, @"\d+").Value;
+                return "IWMAGAZYN" + num;
+            }
+            if (raw.Contains("smalls")) return "IWMSMALLS1";
+            return raw.ToUpper();
+        }
+
         private void SelectFolder()
         {
-            using (FolderBrowserDialog fbd = new FolderBrowserDialog())
+            using (FolderBrowserDialog fbd = new FolderBrowserDialog() { AutoUpgradeEnabled = false })
             {
-                // WYMUSZENIE KLASYCZNEGO DRZEWKA (zgodnie z Twoim screenem)
-                fbd.AutoUpgradeEnabled = false; 
-                fbd.Description = "Wybierz folder zawierający zestawienia AK0:";
-                fbd.ShowNewFolderButton = true;
-
                 if (fbd.ShowDialog() == DialogResult.OK)
                 {
                     selectedFolderPath = fbd.SelectedPath;
-                    this.Text = $"WSQA - [{Path.GetFileName(selectedFolderPath)}]";
-                    ScanFilesForLocations();
+                    ScanFiles();
                 }
             }
         }
 
-        private void ScanFilesForLocations()
+        private void ScanFiles()
         {
             clbWarehouses.Items.Clear();
-            btnRun.Enabled = false;
-            lblStatus.Text = "Przeszukiwanie plików...";
-            Application.DoEvents(); // Odświeża okno, żeby nie "zamarzło"
-
-            var allFiles = Directory.GetFiles(selectedFolderPath, "*.xlsx");
-            var validFiles = new List<(string Path, DateTime Date)>();
-
-            foreach (var file in allFiles)
+            var files = Directory.GetFiles(selectedFolderPath, "*.xlsx");
+            var valid = new List<(string, DateTime)>();
+            foreach (var f in files)
             {
-                string fileName = Path.GetFileName(file);
-                var match = Regex.Match(fileName, @"(\d{2}\.\d{2}\.\d{4})");
-                if (match.Success && fileName.ToUpper().StartsWith("AK0"))
-                {
-                    if (DateTime.TryParseExact(match.Value, "dd.MM.yyyy", null, System.Globalization.DateTimeStyles.None, out DateTime dt))
-                        validFiles.Add((file, dt));
-                }
+                var m = Regex.Match(Path.GetFileName(f), @"(\d{2}\.\d{2}\.\d{4})");
+                if (m.Success && Path.GetFileName(f).ToUpper().StartsWith("AK0"))
+                    if (DateTime.TryParseExact(m.Value, "dd.MM.yyyy", null, System.Globalization.DateTimeStyles.None, out DateTime dt))
+                        valid.Add((f, dt));
             }
+            sortedFiles = valid.OrderBy(x => x.Item2).ToList();
+            
+            if (sortedFiles.Count < 2) { MessageBox.Show("Min. 2 pliki AK0!"); return; }
 
-            sortedFiles = validFiles.OrderBy(f => f.Date).ToList();
-
-            if (sortedFiles.Count < 2)
+            HashSet<string> locs = new HashSet<string>();
+            foreach (var f in sortedFiles)
             {
-                lblStatus.Text = "Błąd: Za mało plików!";
-                MessageBox.Show("Znaleziono za mało plików AK0 (min. 2 pliki z różnymi datami).", "Błąd plików", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            HashSet<string> foundWarehouses = new HashSet<string>();
-            try
-            {
-                foreach (var file in sortedFiles)
+                using (var wb = new XLWorkbook(f.Item1))
                 {
-                    using (var workbook = new XLWorkbook(file.Path))
+                    var ws = wb.Worksheets.First();
+                    foreach (var row in ws.RangeUsed().RowsUsed().Skip(1))
                     {
-                        var ws = workbook.Worksheets.Contains("ak0") ? workbook.Worksheet("ak0") : workbook.Worksheet(1);
-                        var rows = ws.RangeUsed().RowsUsed().Skip(1);
-                        foreach (var row in rows)
-                        {
-                            string loc = row.Cell(1).GetString().Trim();
-                            if (loc.StartsWith("I", StringComparison.OrdinalIgnoreCase)) foundWarehouses.Add(loc);
-                        }
+                        string l = row.Cell(1).GetString().Trim();
+                        if (l.StartsWith("I", StringComparison.OrdinalIgnoreCase)) locs.Add(l);
                     }
                 }
-
-                foreach (var wh in foundWarehouses.OrderBy(x => x)) clbWarehouses.Items.Add(wh, true);
-
-                lblStatus.Text = $"📁 Załadowano {sortedFiles.Count} dni. Magazynów: {foundWarehouses.Count}";
-                btnRun.Enabled = true;
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Błąd odczytu Excela: " + ex.Message);
-            }
+            foreach (var l in locs.OrderBy(x => x)) clbWarehouses.Items.Add(l, true);
+            btnRun.Enabled = true;
+            lblStatus.Text = $"Wczytano {sortedFiles.Count} dni.";
         }
 
         private void BtnRun_Click(object sender, EventArgs e)
         {
-            var selectedWarehouses = clbWarehouses.CheckedItems.Cast<string>().ToList();
-            if (selectedWarehouses.Count == 0) return;
-
-            lblStatus.Text = "⚙️ Generowanie raportu...";
             btnRun.Enabled = false;
+            lblStatus.Text = "Przetwarzanie danych...";
             Application.DoEvents();
 
-            try
-            {
-                string timestamp = DateTime.Now.ToString("dd.MM.yy.HH.mm.ss");
-                string fileName = $"AK0_Braki_{timestamp}.xlsx";
-                string reportPath = Path.Combine(selectedFolderPath, fileName);
-
-                ProcessFinalData(selectedWarehouses, reportPath);
-                
-                lblStatus.Text = "✅ Gotowe!";
-                MessageBox.Show($"Raport zapisany:\n{fileName}", "Sukces", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Błąd: " + ex.Message);
-            }
-            finally
-            {
-                btnRun.Enabled = true;
-                lblStatus.Text = "Gotowy";
-            }
+            try {
+                GenerateReport();
+                MessageBox.Show("Raport wygenerowany!");
+            } catch (Exception ex) { MessageBox.Show("Błąd: " + ex.Message); }
+            finally { btnRun.Enabled = true; lblStatus.Text = "Gotowy"; }
         }
 
-        private void ProcessFinalData(List<string> activeWarehouses, string savePath)
+        private void GenerateReport()
         {
-            var allPackages = new Dictionary<string, SortedDictionary<DateTime, string>>();
-            var dates = sortedFiles.Select(f => f.Date).ToList();
+            var selectedLocs = clbWarehouses.CheckedItems.Cast<string>().ToList();
+            var data = new Dictionary<string, SortedDictionary<DateTime, string>>();
+            var dates = sortedFiles.Select(x => x.Item2).ToList();
 
-            foreach (var file in sortedFiles)
+            foreach (var f in sortedFiles)
             {
-                using (var workbook = new XLWorkbook(file.Path))
+                using (var wb = new XLWorkbook(f.Item1))
                 {
-                    var ws = workbook.Worksheets.Contains("ak0") ? workbook.Worksheet("ak0") : workbook.Worksheet(1);
-                    var rows = ws.RangeUsed().RowsUsed().Skip(1);
-                    foreach (var row in rows)
+                    var ws = wb.Worksheets.First();
+                    foreach (var row in ws.RangeUsed().RowsUsed().Skip(1))
                     {
-                        string loc = row.Cell(1).GetString().Trim();
-                        string pkg = row.Cell(2).GetString().Trim();
-                        if (activeWarehouses.Contains(loc))
+                        string l = row.Cell(1).GetString().Trim();
+                        string p = row.Cell(2).GetString().Trim();
+                        if (selectedLocs.Contains(l))
                         {
-                            if (!allPackages.ContainsKey(pkg)) allPackages[pkg] = new SortedDictionary<DateTime, string>();
-                            allPackages[pkg][file.Date] = loc;
+                            if (!data.ContainsKey(p)) data[p] = new SortedDictionary<DateTime, string>();
+                            data[p][f.Item2] = l;
                         }
                     }
                 }
@@ -227,57 +200,80 @@ namespace Ak0Analyzer
 
             using (var report = new XLWorkbook())
             {
-                var ws = report.Worksheets.Add("Analiza Braków");
-                ws.Cell(1, 1).Value = "Package ID";
-                ws.Cell(1, 1).Style.Font.Bold = true;
+                var ws = report.Worksheets.Add("Analiza");
+                var wsStat = report.Worksheets.Add("Podsumowanie Userów");
+                var userStats = new Dictionary<string, int>();
 
-                for (int i = 0; i < dates.Count; i++)
-                {
-                    var cell = ws.Cell(1, i + 2);
-                    cell.Value = dates[i].ToShortDateString();
-                    cell.Style.Font.Bold = true;
-                    cell.Style.Fill.BackgroundColor = XLColor.LightGray;
-                    cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                }
-                ws.Cell(1, dates.Count + 2).Value = "Szczegóły";
-                ws.Cell(1, dates.Count + 2).Style.Font.Bold = true;
+                // Nagłówki
+                ws.Cell(1, 1).Value = "Package ID";
+                for (int i = 0; i < dates.Count; i++) ws.Cell(1, i + 2).Value = dates[i].ToShortDateString();
 
                 int r = 2;
-                foreach (var item in allPackages)
+                foreach (var pkg in data)
                 {
-                    var firstDate = item.Value.Keys.Min();
-                    // Zmiana logiki na prośbę użytkownika: pokazuje brak, jeśli paczka zniknęła w kolejnych dniach
-                    var missing = dates.Where(d => d > firstDate && !item.Value.ContainsKey(d)).ToList();
-
-                    if (missing.Any())
+                    var first = pkg.Value.Keys.Min();
+                    var last = pkg.Value.Keys.Max();
+                    
+                    // Logika: Braki tylko jeśli przerwa <= 3 dni. Jeśli więcej - uznajemy za wyjazd.
+                    bool hasError = false;
+                    for (int i = 0; i < dates.Count - 1; i++)
                     {
-                        ws.Cell(r, 1).Value = item.Key;
+                        if (dates[i] >= first && dates[i] < last && !pkg.Value.ContainsKey(dates[i]))
+                        {
+                            var nextScan = pkg.Value.Keys.Where(d => d > dates[i]).Min();
+                            if ((nextScan - dates[i]).TotalDays <= 3) { hasError = true; break; }
+                        }
+                    }
+
+                    if (hasError)
+                    {
+                        ws.Cell(r, 1).Value = pkg.Key;
                         for (int i = 0; i < dates.Count; i++)
                         {
-                            if (item.Value.ContainsKey(dates[i])) 
-                                ws.Cell(r, i + 2).Value = item.Value[dates[i]];
-                            else if (dates[i] > firstDate) 
+                            DateTime currentD = dates[i];
+                            if (pkg.Value.ContainsKey(currentD))
+                                ws.Cell(r, i + 2).Value = pkg.Value[currentD];
+                            else if (currentD > first && currentD < last)
                             {
-                                ws.Cell(r, i + 2).Value = "BRAK SKANU";
-                                ws.Cell(r, i + 2).Style.Fill.BackgroundColor = XLColor.Salmon;
-                                ws.Cell(r, i + 2).Style.Font.FontColor = XLColor.White;
+                                var nextScan = pkg.Value.Keys.Where(d => d > currentD).Min();
+                                if ((nextScan - currentD).TotalDays <= 3)
+                                {
+                                    var cell = ws.Cell(r, i + 2);
+                                    cell.Value = "BRAK SKANU";
+                                    cell.Style.Fill.BackgroundColor = XLColor.Salmon;
+                                    
+                                    // Pobieranie osoby z grafiku
+                                    string locAtError = pkg.Value[first]; // Zakładamy lokalizację z pierwszego skanu
+                                    if (staffSchedule.TryGetValue((locAtError, currentD.Day), out string person))
+                                    {
+                                        cell.CreateComment().AddText("Odpowiedzialny: " + person);
+                                        if (!userStats.ContainsKey(person)) userStats[person] = 0;
+                                        userStats[person]++;
+                                    }
+                                }
                             }
                         }
-                        ws.Cell(r, dates.Count + 2).Value = "Brak od: " + string.Join(", ", missing.Select(m => m.ToShortDateString()));
                         r++;
                     }
                 }
+
+                // Arkusz statystyk
+                wsStat.Cell(1, 1).Value = "Pracownik";
+                wsStat.Cell(1, 2).Value = "Liczba Braków Skany";
+                int sr = 2;
+                foreach (var stat in userStats.OrderByDescending(x => x.Value))
+                {
+                    wsStat.Cell(sr, 1).Value = stat.Key;
+                    wsStat.Cell(sr, 2).Value = stat.Value;
+                    sr++;
+                }
+
                 ws.Columns().AdjustToContents();
-                report.SaveAs(savePath);
+                wsStat.Columns().AdjustToContents();
+                report.SaveAs(Path.Combine(selectedFolderPath, $"Raport_PRO_{DateTime.Now:dd.MM.yy.HH.mm}.xlsx"));
             }
         }
 
-        [STAThread]
-        static void Main()
-        {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
-        }
+        [STAThread] static void Main() { Application.EnableVisualStyles(); Application.Run(new MainForm()); }
     }
 }
