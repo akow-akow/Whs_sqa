@@ -7,12 +7,16 @@
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    
     <AssemblyName>WSQA</AssemblyName>
     
     <ApplicationIcon>icon.ico</ApplicationIcon>
   </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.102.1" />
+    
+    <EmbeddedResource Include="icon.ico">
+      <LogicalName>AppIcon.ico</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 </Project>
