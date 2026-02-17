@@ -13,17 +13,27 @@ namespace Ak0Analyzer
     {
         private CheckedListBox clbWarehouses;
         private Button btnRun;
+        private Button btnSelectFolder;
         private Label lblStatus;
         private List<(string Path, DateTime Date)> sortedFiles;
+        private string selectedFolderPath = "";
 
         public MainForm()
         {
             this.Text = "Warehouse Scan Quality Analysis";
-            this.Size = new System.Drawing.Size(450, 600);
+            this.Size = new System.Drawing.Size(500, 650);
             this.StartPosition = FormStartPosition.CenterScreen;
 
+            btnSelectFolder = new Button() { 
+                Text = "WYBIERZ FOLDER Z PLIKAMI AK0", 
+                Dock = DockStyle.Top, 
+                Height = 50,
+                BackColor = System.Drawing.Color.LightSkyBlue
+            };
+            btnSelectFolder.Click += (s, e) => SelectFolder();
+
             Label lbl = new Label() { 
-                Text = "Wykryte lokalizacje (zaczynające się na 'I'):", 
+                Text = "Wykryte lokalizacje 'I' (wybierz folder aby załadować):", 
                 Dock = DockStyle.Top, 
                 Height = 35, 
                 TextAlign = System.Drawing.ContentAlignment.BottomLeft 
@@ -41,7 +51,7 @@ namespace Ak0Analyzer
             btnRun.Click += BtnRun_Click;
 
             lblStatus = new Label() { 
-                Text = "Inicjalizacja...", 
+                Text = "Oczekiwanie na wybór folderu...", 
                 Dock = DockStyle.Bottom, 
                 Height = 30, 
                 TextAlign = System.Drawing.ContentAlignment.MiddleCenter 
@@ -49,16 +59,31 @@ namespace Ak0Analyzer
 
             this.Controls.Add(clbWarehouses);
             this.Controls.Add(lbl);
+            this.Controls.Add(btnSelectFolder);
             this.Controls.Add(lblStatus);
             this.Controls.Add(btnRun);
+        }
 
-            // Uruchomienie skanowania po pokazaniu okna
-            this.Load += (s, e) => ScanFilesForLocations();
+        private void SelectFolder()
+        {
+            using (var fbd = new FolderBrowserDialog())
+            {
+                fbd.Description = "Wybierz folder zawierający zestawienia AK0";
+                if (fbd.ShowDialog() == DialogResult.OK)
+                {
+                    selectedFolderPath = fbd.SelectedPath;
+                    this.Text = $"WSQA - [{Path.GetFileName(selectedFolderPath)}]";
+                    ScanFilesForLocations();
+                }
+            }
         }
 
         private void ScanFilesForLocations()
         {
-            var allFiles = Directory.GetFiles(AppDomain.CurrentDomain.BaseDirectory, "*.xlsx");
+            clbWarehouses.Items.Clear();
+            btnRun.Enabled = false;
+
+            var allFiles = Directory.GetFiles(selectedFolderPath, "*.xlsx");
             var validFiles = new List<(string Path, DateTime Date)>();
 
             foreach (var file in allFiles)
@@ -78,12 +103,12 @@ namespace Ak0Analyzer
 
             if (sortedFiles.Count < 2)
             {
-                lblStatus.Text = "Błąd: Brak plików Ak0";
-                MessageBox.Show("W folderze muszą być min. 2 pliki Ak0 (format: AK0_DD.MM.YYYYD.xlsx)");
+                lblStatus.Text = "Błąd: Za mało plików!";
+                MessageBox.Show("Wybrany folder musi zawierać co najmniej 2 pliki AK0 (format AK0_DD.MM.YYYYD.xlsx)");
                 return;
             }
 
-            lblStatus.Text = "Skanowanie magazynów...";
+            lblStatus.Text = "Analizowanie nagłówków...";
             HashSet<string> foundWarehouses = new HashSet<string>();
 
             try
@@ -107,15 +132,15 @@ namespace Ak0Analyzer
 
                 foreach (var wh in foundWarehouses.OrderBy(x => x))
                 {
-                    clbWarehouses.Items.Add(wh, true); // Domyślnie zaznaczone
+                    clbWarehouses.Items.Add(wh, true);
                 }
 
-                lblStatus.Text = $"Znaleziono {foundWarehouses.Count} lokalizacji.";
+                lblStatus.Text = $"Załadowano {sortedFiles.Count} dni. Znaleziono {foundWarehouses.Count} magazynów.";
                 btnRun.Enabled = true;
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Błąd podczas wstępnego skanowania: " + ex.Message);
+                MessageBox.Show("Błąd podczas odczytu plików: " + ex.Message);
             }
         }
 
@@ -124,22 +149,23 @@ namespace Ak0Analyzer
             var selectedWarehouses = clbWarehouses.CheckedItems.Cast<string>().ToList();
             if (selectedWarehouses.Count == 0)
             {
-                MessageBox.Show("Wybierz co najmniej jeden magazyn!");
+                MessageBox.Show("Musisz zaznaczyć choć jeden magazyn do analizy.");
                 return;
             }
 
-            lblStatus.Text = "Generowanie raportu...";
+            lblStatus.Text = "Generowanie raportu Excel...";
             btnRun.Enabled = false;
 
             try
             {
-                ProcessFinalData(selectedWarehouses);
+                string reportPath = Path.Combine(selectedFolderPath, "Raport_Brakow.xlsx");
+                ProcessFinalData(selectedWarehouses, reportPath);
                 lblStatus.Text = "Gotowe!";
-                MessageBox.Show("Raport_Brakow.xlsx został wygenerowany.");
+                MessageBox.Show($"Raport został zapisany w folderze:\n{reportPath}");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Błąd: " + ex.Message);
+                MessageBox.Show("Błąd podczas generowania raportu: " + ex.Message);
             }
             finally
             {
@@ -148,7 +174,7 @@ namespace Ak0Analyzer
             }
         }
 
-        private void ProcessFinalData(List<string> activeWarehouses)
+        private void ProcessFinalData(List<string> activeWarehouses, string savePath)
         {
             var allPackages = new Dictionary<string, SortedDictionary<DateTime, string>>();
             var dates = sortedFiles.Select(f => f.Date).ToList();
@@ -176,9 +202,7 @@ namespace Ak0Analyzer
 
             using (var report = new XLWorkbook())
             {
-                var ws = report.Worksheets.Add("Analiza Braków");
-                
-                // Nagłówki
+                var ws = report.Worksheets.Add("Analiza");
                 ws.Cell(1, 1).Value = "Package ID";
                 for (int i = 0; i < dates.Count; i++)
                 {
@@ -187,8 +211,7 @@ namespace Ak0Analyzer
                     cell.Style.Font.Bold = true;
                     cell.Style.Fill.BackgroundColor = XLColor.LightGray;
                 }
-                ws.Cell(1, dates.Count + 2).Value = "Szczegóły Braków";
-                ws.Cell(1, dates.Count + 2).Style.Font.Bold = true;
+                ws.Cell(1, dates.Count + 2).Value = "Szczegóły";
 
                 int r = 2;
                 foreach (var item in allPackages)
@@ -203,9 +226,7 @@ namespace Ak0Analyzer
                         for (int i = 0; i < dates.Count; i++)
                         {
                             if (item.Value.ContainsKey(dates[i])) 
-                            {
                                 ws.Cell(r, i + 2).Value = item.Value[dates[i]];
-                            }
                             else if (dates[i] > first && dates[i] < last) 
                             {
                                 ws.Cell(r, i + 2).Value = "BRAK SKANU";
@@ -213,13 +234,13 @@ namespace Ak0Analyzer
                                 ws.Cell(r, i + 2).Style.Font.FontColor = XLColor.White;
                             }
                         }
-                        ws.Cell(r, dates.Count + 2).Value = "Pominięto: " + string.Join(", ", missing.Select(m => m.ToShortDateString()));
+                        ws.Cell(r, dates.Count + 2).Value = "Brak skanu: " + string.Join(", ", missing.Select(m => m.ToShortDateString()));
                         r++;
                     }
                 }
 
                 ws.Columns().AdjustToContents();
-                report.SaveAs("Raport_Brakow.xlsx");
+                report.SaveAs(savePath);
             }
         }
 
