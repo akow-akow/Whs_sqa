@@ -158,10 +158,15 @@ namespace Ak0Analyzer
 
             try
             {
-                string reportPath = Path.Combine(selectedFolderPath, "Raport_Brakow.xlsx");
+                // Dynamiczna nazwa: AK0_Braki_DD.MM.YY.HH.MM.SS
+                string timestamp = DateTime.Now.ToString("dd.MM.yy.HH.mm.ss");
+                string fileName = $"AK0_Braki_{timestamp}.xlsx";
+                string reportPath = Path.Combine(selectedFolderPath, fileName);
+
                 ProcessFinalData(selectedWarehouses, reportPath);
+                
                 lblStatus.Text = "Gotowe!";
-                MessageBox.Show($"Raport został zapisany w folderze:\n{reportPath}");
+                MessageBox.Show($"Raport został zapisany jako:\n{fileName}");
             }
             catch (Exception ex)
             {
@@ -202,7 +207,7 @@ namespace Ak0Analyzer
 
             using (var report = new XLWorkbook())
             {
-                var ws = report.Worksheets.Add("Analiza");
+                var ws = report.Worksheets.Add("Analiza Braków");
                 ws.Cell(1, 1).Value = "Package ID";
                 for (int i = 0; i < dates.Count; i++)
                 {
@@ -234,7 +239,7 @@ namespace Ak0Analyzer
                                 ws.Cell(r, i + 2).Style.Font.FontColor = XLColor.White;
                             }
                         }
-                        ws.Cell(r, dates.Count + 2).Value = "Brak skanu: " + string.Join(", ", missing.Select(m => m.ToShortDateString()));
+                        ws.Cell(r, dates.Count + 2).Value = "Pominięto: " + string.Join(", ", missing.Select(m => m.ToShortDateString()));
                         r++;
                     }
                 }
