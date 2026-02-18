@@ -1,18 +1,31 @@
-name: Build My Tool
-on: [push]
+name: Build EXE
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Pozwala uruchomić ręcznie
+
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x # Zmienione na 8.0
-      - name: Build
-        run: dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: Ak0_wsqa
-          path: bin/Release/net8.0-windows/win-x64/publish/WSQA.exe
+    - uses: actions/checkout@v4
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Setup NuGet
+      uses: NuGet/setup-nuget@v1
+
+    - name: Restore NuGet Packages
+      run: nuget restore Ak0Analyzer.csproj
+
+    - name: Build App
+      run: msbuild Ak0Analyzer.csproj /p:Configuration=Release
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AK0-Analyzer-EXE
+        path: bin/Release/Ak0Analyzer.exe
