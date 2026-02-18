@@ -31,7 +31,7 @@ namespace Ak0Analyzer
         public MainForm()
         {
             LoadSettings();
-            this.Text = "WSQA PRO + UPS Tracking (Auto-Verify)";
+            this.Text = "WSQA PRO + UPS Auto-Logic";
             this.Size = new System.Drawing.Size(550, 830);
             this.StartPosition = FormStartPosition.CenterScreen;
 
@@ -54,7 +54,7 @@ namespace Ak0Analyzer
 
             clbWarehouses = new CheckedListBox() { Dock = DockStyle.Fill, CheckOnClick = true, Font = new System.Drawing.Font("Segoe UI", 10) };
             Panel pnlOptions = new Panel() { Dock = DockStyle.Bottom, Height = 40, BackColor = System.Drawing.Color.WhiteSmoke };
-            chkEnableUPS = new CheckBox() { Text = "Weryfikuj braki przez UPS API (Auto-Green)", AutoSize = true, Location = new System.Drawing.Point(10, 10), Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            chkEnableUPS = new CheckBox() { Text = "Automatycznie oznaczaj paczki poza Strykowem", AutoSize = true, Location = new System.Drawing.Point(10, 10), Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             pnlOptions.Controls.Add(chkEnableUPS);
 
             btnRun = new Button() { Text = "🚀 3. GENERUJ RAPORT", Dock = DockStyle.Bottom, Height = 70, BackColor = System.Drawing.Color.LightGreen, Enabled = false, Font = new System.Drawing.Font("Segoe UI", 11, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
@@ -228,7 +228,7 @@ namespace Ak0Analyzer
 
                     if (hasGap || missingLast) {
                         ws.Cell(r, 1).Value = pkg.Key;
-                        bool isActuallyDelivered = false;
+                        bool isActuallyOutside = false;
 
                         // API UPS Check
                         string upsStatus = "", upsCity = "";
@@ -239,11 +239,13 @@ namespace Ak0Analyzer
                             ws.Cell(r, colStatus).Value = upsStatus;
                             ws.Cell(r, colCity).Value = upsCity;
 
+                            // LOGIKA: Jeśli miasto nie jest Strykowem ani Dobrą, uznajemy za wydaną
                             string cityNorm = upsCity.ToUpper();
-                            if ((upsStatus.Contains("Delivered") || upsStatus.Contains("Out for Delivery")) && 
+                            if (!string.IsNullOrEmpty(upsCity) && upsCity != "---" && upsCity != "Nieznane" &&
                                 !cityNorm.Contains("STRYKOW") && !cityNorm.Contains("DOBRA")) {
-                                isActuallyDelivered = true;
+                                isActuallyOutside = true;
                             }
+
                             if (upsStatus.Contains("Błąd") || upsStatus.Contains("Brak danych")) failedPackages.Add(pkg.Key);
                         }
 
@@ -253,8 +255,9 @@ namespace Ak0Analyzer
                             if (pkg.Value.ContainsKey(d)) ws.Cell(r, i + 2).Value = pkg.Value[d];
                             else if (d > first) {
                                 var cell = ws.Cell(r, i + 2);
-                                if (isActuallyDelivered && d == lastDay) {
-                                    cell.Value = "DORĘCZONA"; cell.Style.Fill.BackgroundColor = XLColor.Green;
+                                // Jeśli paczka jest poza Strykowem, oznaczamy na zielono w ostatnim dniu
+                                if (isActuallyOutside && d == lastDay) {
+                                    cell.Value = "DORĘCZONA/WYDANA"; cell.Style.Fill.BackgroundColor = XLColor.Green;
                                     cell.Style.Font.FontColor = XLColor.White;
                                 } else {
                                     cell.Value = "BRAK SKANU"; cell.Style.Fill.BackgroundColor = XLColor.Salmon;
