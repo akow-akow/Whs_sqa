@@ -28,4 +28,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: AK0-Analyzer-EXE
-        path: bin/Release/Ak0Analyzer.exe
+        path: bin/Release/Ak0Analyzer1.exe
