@@ -8,7 +8,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using System.Xml.Linq;
-using ClosedXML.Excel; // Wymaga zainstalowania NuGet: ClosedXML
+using ClosedXML.Excel;
 
 namespace Ak0Analyzer
 {
@@ -28,7 +28,6 @@ namespace Ak0Analyzer
         private int apiSuccess = 0;
         private int apiFailed = 0;
 
-        // Klasy pomocnicze dla starszego .NET
         struct FileItem { public string Path; public DateTime Date; }
         struct ScheduleKey { 
             public string Loc; public int Day;
@@ -73,8 +72,90 @@ namespace Ak0Analyzer
             this.Controls.Add(btnRun);
         }
 
-        // ... [Reszta metod SelectFolder, LoadSchedule, LoadSettings pozostaje identyczna jak wcześniej] ...
-        // [Poniżej kluczowa zmiana w logice GenerateReport dla .NET 4.8]
+        private void LoadSettings() { if (File.Exists(settingsPath)) { var lines = File.ReadAllLines(settingsPath); if (lines.Length >= 3) { upsLicense = lines[0]; upsUser = lines[1]; upsPass = lines[2]; } } }
+
+        private void SelectFolder() { using (FolderBrowserDialog fbd = new FolderBrowserDialog()) { if (fbd.ShowDialog() == DialogResult.OK) { selectedFolderPath = fbd.SelectedPath; ScanFiles(); } } }
+
+        private void ScanFiles() {
+            clbWarehouses.Items.Clear();
+            var files = Directory.GetFiles(selectedFolderPath, "*.xlsx");
+            var valid = new List<FileItem>();
+            foreach (var f in files) {
+                string fn = Path.GetFileName(f);
+                var m = Regex.Match(fn, @"(\d{2}\.\d{2}\.\d{4})");
+                if (m.Success && fn.ToUpper().StartsWith("AK0"))
+                    if (DateTime.TryParseExact(m.Value, "dd.MM.yyyy", null, System.Globalization.DateTimeStyles.None, out DateTime dt))
+                        valid.Add(new FileItem { Path = f, Date = dt });
+            }
+            sortedFiles = valid.OrderBy(x => x.Date).ToList();
+            if (sortedFiles.Count < 2) { lblStatus.Text = "Błąd: Potrzeba min. 2 plików!"; return; }
+            
+            HashSet<string> locs = new HashSet<string>();
+            foreach (var f in sortedFiles) {
+                using (var wb = new XLWorkbook(f.Path)) {
+                    var ws = wb.Worksheets.FirstOrDefault();
+                    if (ws == null) continue;
+                    foreach (var row in ws.RangeUsed().RowsUsed().Skip(1)) locs.Add(row.Cell(1).GetString().Trim());
+                }
+            }
+            foreach (var l in locs.OrderBy(x => x)) clbWarehouses.Items.Add(l);
+            btnRun.Enabled = true; lblStatus.Text = "Wczytano pliki.";
+        }
+
+        private void LoadScheduleWindow() {
+            Form f = new Form() { Text = "Wklej Grafik (Ctrl+V)", Size = new System.Drawing.Size(600, 400) };
+            DataGridView dgv = new DataGridView() { Dock = DockStyle.Fill, AllowUserToAddRows = false };
+            Button btnSave = new Button() { Text = "Zapisz", Dock = DockStyle.Bottom, Height = 40 };
+            dgv.KeyDown += (s, e) => { if (e.Control && e.KeyCode == Keys.V) PasteToDgv(dgv); };
+            btnSave.Click += (s, e) => { ProcessSchedule(dgv); f.Close(); };
+            f.Controls.Add(dgv); f.Controls.Add(btnSave); f.ShowDialog();
+        }
+
+        private void PasteToDgv(DataGridView dgv) {
+            string t = Clipboard.GetText(); if (string.IsNullOrEmpty(t)) return;
+            dgv.Rows.Clear(); dgv.Columns.Clear();
+            string[] lines = t.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            string[] headers = lines[0].Split('\t');
+            foreach (var h in headers) dgv.Columns.Add(h, h);
+            for (int i = 1; i < lines.Length; i++) dgv.Rows.Add(lines[i].Split('\t'));
+        }
+
+        private void ProcessSchedule(DataGridView dgv) {
+            staffSchedule.Clear();
+            for (int r = 0; r < dgv.Rows.Count; r++) {
+                string loc = dgv.Rows[r].Cells[0].Value?.ToString().ToUpper().Trim() ?? "";
+                for (int c = 1; c < dgv.Columns.Count; c++) {
+                    if (int.TryParse(dgv.Columns[c].HeaderText, out int day)) {
+                        string person = dgv.Rows[r].Cells[c].Value?.ToString() ?? "";
+                        if (!string.IsNullOrEmpty(person)) staffSchedule[new ScheduleKey { Loc = loc, Day = day }] = person;
+                    }
+                }
+            }
+        }
+
+        private void ShowSettingsWindow() {
+            Form f = new Form() { Text = "Ustawienia UPS", Size = new System.Drawing.Size(300, 200) };
+            TextBox t1 = new TextBox() { Text = upsLicense, Dock = DockStyle.Top };
+            TextBox t2 = new TextBox() { Text = upsUser, Dock = DockStyle.Top };
+            TextBox t3 = new TextBox() { Text = upsPass, Dock = DockStyle.Top, UseSystemPasswordChar = true };
+            Button b = new Button() { Text = "Zapisz", Dock = DockStyle.Bottom };
+            b.Click += (s, e) => {
+                upsLicense = t1.Text; upsUser = t2.Text; upsPass = t3.Text;
+                File.WriteAllLines(settingsPath, new[] { upsLicense, upsUser, upsPass });
+                f.Close();
+            };
+            f.Controls.Add(t3); f.Controls.Add(new Label { Text = "Hasło:", Dock = DockStyle.Top });
+            f.Controls.Add(t2); f.Controls.Add(new Label { Text = "User ID:", Dock = DockStyle.Top });
+            f.Controls.Add(t1); f.Controls.Add(new Label { Text = "Licencja:", Dock = DockStyle.Top });
+            f.Controls.Add(b); f.ShowDialog();
+        }
+
+        private async void BtnRun_Click(object sender, EventArgs e) {
+            btnRun.Enabled = false; apiSuccess = 0; apiFailed = 0;
+            try { await GenerateReportAsync(); MessageBox.Show("Raport wygenerowany!"); }
+            catch (Exception ex) { MessageBox.Show("Błąd: " + ex.Message); }
+            finally { btnRun.Enabled = true; lblStatus.Text = "Gotowe."; }
+        }
 
         private async System.Threading.Tasks.Task GenerateReportAsync()
         {
@@ -85,13 +166,11 @@ namespace Ak0Analyzer
             List<string> failedPackages = new List<string>();
             var personMissedScans = new Dictionary<string, int>();
 
-            // Wczytywanie danych
             foreach (var f in sortedFiles) {
                 using (var wb = new XLWorkbook(f.Path)) {
-                    var ws = wb.Worksheets.FirstOrDefault(w => w.Name.ToUpper() == "AK0") ?? wb.Worksheets.FirstOrDefault();
+                    var ws = wb.Worksheets.FirstOrDefault();
                     if (ws == null) continue;
-                    var used = ws.RangeUsed(); if (used == null) continue;
-                    foreach (var row in used.RowsUsed().Skip(1)) {
+                    foreach (var row in ws.RangeUsed().RowsUsed().Skip(1)) {
                         string l = row.Cell(1).GetString().Trim();
                         string p = row.Cell(2).GetString().Trim();
                         if (selectedLocs.Contains(l)) {
@@ -117,16 +196,9 @@ namespace Ak0Analyzer
                 foreach (var pkg in data) {
                     var first = pkg.Value.Keys.Min();
                     var lastScan = pkg.Value.Keys.Max();
-                    bool hasGap = false;
-                    for (int i = 0; i < dates.Count; i++) {
-                        if (dates[i] > first && dates[i] < lastScan && !pkg.Value.ContainsKey(dates[i])) {
-                            var next = pkg.Value.Keys.Where(d => d > dates[i]).Min();
-                            if ((next - dates[i]).TotalDays <= 3) { hasGap = true; break; }
-                        }
-                    }
                     bool missingLast = !pkg.Value.ContainsKey(lastDay) && (lastDay - lastScan).TotalDays <= 3;
 
-                    if (hasGap || missingLast) {
+                    if (missingLast || pkg.Value.Count < dates.Count(d => d >= first && d <= lastScan)) {
                         ws.Cell(r, 1).Value = pkg.Key;
                         bool isActuallyOutside = false;
 
@@ -135,13 +207,10 @@ namespace Ak0Analyzer
                             var res = await GetUpsTracking(pkg.Key);
                             ws.Cell(r, colStatus).Value = res.Item1;
                             ws.Cell(r, colCity).Value = res.Item2;
-
                             string cityNorm = res.Item2.ToUpper();
-                            if (!string.IsNullOrEmpty(res.Item2) && res.Item2 != "---" && 
-                                !cityNorm.Contains("STRYKOW") && !cityNorm.Contains("DOBRA")) {
+                            if (!string.IsNullOrEmpty(res.Item2) && res.Item2 != "---" && !cityNorm.Contains("STRYKOW") && !cityNorm.Contains("DOBRA")) {
                                 isActuallyOutside = true;
                             }
-                            if (res.Item1.Contains("Błąd")) failedPackages.Add(pkg.Key);
                         }
 
                         for (int i = 0; i < dates.Count; i++) {
@@ -150,16 +219,14 @@ namespace Ak0Analyzer
                             else if (d > first) {
                                 var cell = ws.Cell(r, i + 2);
                                 if (isActuallyOutside && d == lastDay) {
-                                    cell.Value = "DORĘCZONA/WYDANA"; 
-                                    cell.Style.Fill.BackgroundColor = XLColor.Green;
-                                    cell.Style.Font.FontColor = XLColor.White;
+                                    cell.Value = "DORĘCZONA/WYDANA"; cell.Style.Fill.BackgroundColor = XLColor.Green; cell.Style.Font.FontColor = XLColor.White;
                                 } else {
                                     cell.Value = "BRAK SKANU"; cell.Style.Fill.BackgroundColor = XLColor.Salmon;
                                     var key = new ScheduleKey { Loc = pkg.Value[first], Day = d.Day };
-                                    if (staffSchedule.TryGetValue(key, out string person)) {
-                                        cell.CreateComment().AddText(person);
-                                        if (!personMissedScans.ContainsKey(person)) personMissedScans[person] = 0;
-                                        personMissedScans[person]++;
+                                    if (staffSchedule.TryGetValue(key, out string p)) {
+                                        cell.CreateComment().AddText(p);
+                                        if (!personMissedScans.ContainsKey(p)) personMissedScans[p] = 0;
+                                        personMissedScans[p]++;
                                     }
                                 }
                             }
@@ -167,35 +234,34 @@ namespace Ak0Analyzer
                         r++;
                     }
                 }
-                // ... [Kod statystyk i zapisu pliku identyczny] ...
-                ws.Columns().AdjustToContents(); wsStat.Columns().AdjustToContents();
+                wsStat.Cell(1, 1).Value = "Ranking braków:";
+                int sr = 2;
+                foreach (var kvp in personMissedScans.OrderByDescending(x => x.Value)) {
+                    wsStat.Cell(sr, 1).Value = kvp.Key; wsStat.Cell(sr, 2).Value = kvp.Value; sr++;
+                }
+                ws.Columns().AdjustToContents();
                 report.SaveAs(Path.Combine(selectedFolderPath, "Raport_AK0_" + DateTime.Now.ToString("ddMMyy_HHmm") + ".xlsx"));
             }
         }
 
-        private async System.Threading.Tasks.Task<Tuple<string, string>> GetUpsTracking(string trackNum)
-        {
+        private async System.Threading.Tasks.Task<Tuple<string, string>> GetUpsTracking(string trackNum) {
             try {
-                // W .NET Framework 4.8 musimy wymusić TLS 1.2 dla nowoczesnych API
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
-                
                 string xml = "<?xml version=\"1.0\"?><AccessRequest><AccessLicenseNumber>" + upsLicense + "</AccessLicenseNumber><UserId>" + upsUser + "</UserId><Password>" + upsPass + "</Password></AccessRequest>" +
                              "<?xml version=\"1.0\"?><TrackRequest><Request><RequestAction>Track</RequestAction></Request><TrackingNumber>" + trackNum + "</TrackingNumber></TrackRequest>";
-                
                 using (var client = new HttpClient()) {
                     var resp = await client.PostAsync("https://www.ups.com/ups.app/xml/Track", new StringContent(xml, Encoding.UTF8, "application/x-www-form-urlencoded"));
-                    var content = await resp.Content.ReadAsStringAsync();
-                    var doc = XDocument.Parse(content);
-                    var package = doc.Descendants("Package").FirstOrDefault();
-                    if (package != null) {
-                        var activity = package.Descendants("Activity").FirstOrDefault();
-                        string desc = activity?.Descendants("Status")?.FirstOrDefault()?.Descendants("StatusType")?.FirstOrDefault()?.Descendants("Description")?.FirstOrDefault()?.Value ?? "Brak opisu";
-                        string city = activity?.Descendants("ActivityLocation")?.FirstOrDefault()?.Descendants("Address")?.FirstOrDefault()?.Descendants("City")?.FirstOrDefault()?.Value ?? "Nieznane";
-                        apiSuccess++; return Tuple.Create(desc, city);
+                    var doc = XDocument.Parse(await resp.Content.ReadAsStringAsync());
+                    var pkg = doc.Descendants("Package").FirstOrDefault();
+                    if (pkg != null) {
+                        var act = pkg.Descendants("Activity").FirstOrDefault();
+                        string st = act?.Descendants("Status")?.FirstOrDefault()?.Descendants("Description")?.FirstOrDefault()?.Value ?? "Brak";
+                        string ct = act?.Descendants("ActivityLocation")?.FirstOrDefault()?.Descendants("Address")?.FirstOrDefault()?.Descendants("City")?.FirstOrDefault()?.Value ?? "Nieznane";
+                        apiSuccess++; return new Tuple<string, string>(st, ct);
                     }
                 }
             } catch { }
-            apiFailed++; return Tuple.Create("Błąd API", "---");
+            apiFailed++; return new Tuple<string, string>("Błąd API", "---");
         }
 
         [STAThread] static void Main() { Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new MainForm()); }
