@@ -15,8 +15,8 @@
   <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.102.1" />
     
-    <EmbeddedResource Include="icon.ico">
-      <LogicalName>AppIcon.ico</LogicalName>
-    </EmbeddedResource>
+    <None Include="icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>
