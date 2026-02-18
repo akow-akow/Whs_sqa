@@ -38,9 +38,14 @@ namespace Ak0Analyzer
         public MainForm()
         {
             LoadSettings();
-            this.Text = "WSQA PRO - Lightweight Edition";
+            this.Text = "WSQA PRO - AK0 Analyzer";
             this.Size = new System.Drawing.Size(550, 830);
             this.StartPosition = FormStartPosition.CenterScreen;
+
+            // Próba wczytania ikony do okna (musi być w tym samym folderze co EXE)
+            try {
+                if (File.Exists("icon.ico")) this.Icon = new System.Drawing.Icon("icon.ico");
+            } catch { /* ignoruj błąd ikony */ }
 
             FlowLayoutPanel topPanel = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 180, Padding = new Padding(10) };
             btnSelectFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER AK0", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.LightSkyBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
@@ -78,34 +83,59 @@ namespace Ak0Analyzer
 
         private void ScanFiles() {
             clbWarehouses.Items.Clear();
+            if (!Directory.Exists(selectedFolderPath)) return;
+
             var files = Directory.GetFiles(selectedFolderPath, "*.xlsx");
             var valid = new List<FileItem>();
             foreach (var f in files) {
                 string fn = Path.GetFileName(f);
                 var m = Regex.Match(fn, @"(\d{2}\.\d{2}\.\d{4})");
-                if (m.Success && fn.ToUpper().StartsWith("AK0"))
+                if (m.Success && fn.ToUpper().StartsWith("AK0")) {
                     if (DateTime.TryParseExact(m.Value, "dd.MM.yyyy", null, System.Globalization.DateTimeStyles.None, out DateTime dt))
                         valid.Add(new FileItem { Path = f, Date = dt });
+                }
             }
+
             sortedFiles = valid.OrderBy(x => x.Date).ToList();
-            if (sortedFiles.Count < 2) { lblStatus.Text = "Błąd: Potrzeba min. 2 plików!"; return; }
+            if (sortedFiles.Count < 2) { 
+                lblStatus.Text = "Błąd: Potrzeba min. 2 plików AK0 (format: AK0...dd.mm.yyyy.xlsx)!"; 
+                return; 
+            }
             
             HashSet<string> locs = new HashSet<string>();
             foreach (var f in sortedFiles) {
-                using (var wb = new XLWorkbook(f.Path)) {
-                    var ws = wb.Worksheets.FirstOrDefault();
-                    if (ws == null) continue;
-                    foreach (var row in ws.RangeUsed().RowsUsed().Skip(1)) locs.Add(row.Cell(1).GetString().Trim());
+                try {
+                    using (var wb = new XLWorkbook(f.Path)) {
+                        // Szukamy arkusza AK0 lub pierwszego dostępnego
+                        var ws = wb.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("AK0")) ?? wb.Worksheets.FirstOrDefault();
+                        if (ws == null) continue;
+
+                        var range = ws.RangeUsed();
+                        if (range == null) continue; // Zabezpieczenie przed pustym arkuszem
+
+                        foreach (var row in range.RowsUsed().Skip(1)) {
+                            var cellValue = row.Cell(1).GetString().Trim();
+                            if (!string.IsNullOrEmpty(cellValue)) locs.Add(cellValue);
+                        }
+                    }
+                } catch (Exception ex) {
+                    MessageBox.Show("Nie można otworzyć pliku: " + Path.GetFileName(f.Path) + ". Sprawdź czy nie jest otwarty w Excelu.");
                 }
             }
-            foreach (var l in locs.OrderBy(x => x)) clbWarehouses.Items.Add(l);
-            btnRun.Enabled = true; lblStatus.Text = "Wczytano pliki.";
+
+            if (locs.Count == 0) {
+                lblStatus.Text = "Błąd: Nie znaleziono danych w kolumnie A.";
+            } else {
+                foreach (var l in locs.OrderBy(x => x)) clbWarehouses.Items.Add(l);
+                btnRun.Enabled = true; 
+                lblStatus.Text = "Wczytano " + sortedFiles.Count + " plików.";
+            }
         }
 
         private void LoadScheduleWindow() {
-            Form f = new Form() { Text = "Wklej Grafik (Ctrl+V)", Size = new System.Drawing.Size(600, 400) };
+            Form f = new Form() { Text = "Wklej Grafik (Ctrl+V)", Size = new System.Drawing.Size(600, 400), StartPosition = FormStartPosition.CenterParent };
             DataGridView dgv = new DataGridView() { Dock = DockStyle.Fill, AllowUserToAddRows = false };
-            Button btnSave = new Button() { Text = "Zapisz", Dock = DockStyle.Bottom, Height = 40 };
+            Button btnSave = new Button() { Text = "Zapisz Grafik", Dock = DockStyle.Bottom, Height = 40 };
             dgv.KeyDown += (s, e) => { if (e.Control && e.KeyCode == Keys.V) PasteToDgv(dgv); };
             btnSave.Click += (s, e) => { ProcessSchedule(dgv); f.Close(); };
             f.Controls.Add(dgv); f.Controls.Add(btnSave); f.ShowDialog();
@@ -115,6 +145,7 @@ namespace Ak0Analyzer
             string t = Clipboard.GetText(); if (string.IsNullOrEmpty(t)) return;
             dgv.Rows.Clear(); dgv.Columns.Clear();
             string[] lines = t.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length == 0) return;
             string[] headers = lines[0].Split('\t');
             foreach (var h in headers) dgv.Columns.Add(h, h);
             for (int i = 1; i < lines.Length; i++) dgv.Rows.Add(lines[i].Split('\t'));
@@ -134,26 +165,29 @@ namespace Ak0Analyzer
         }
 
         private void ShowSettingsWindow() {
-            Form f = new Form() { Text = "Ustawienia UPS", Size = new System.Drawing.Size(300, 200) };
+            Form f = new Form() { Text = "Ustawienia UPS", Size = new System.Drawing.Size(300, 250), StartPosition = FormStartPosition.CenterParent };
             TextBox t1 = new TextBox() { Text = upsLicense, Dock = DockStyle.Top };
             TextBox t2 = new TextBox() { Text = upsUser, Dock = DockStyle.Top };
             TextBox t3 = new TextBox() { Text = upsPass, Dock = DockStyle.Top, UseSystemPasswordChar = true };
-            Button b = new Button() { Text = "Zapisz", Dock = DockStyle.Bottom };
+            Button b = new Button() { Text = "Zapisz", Dock = DockStyle.Bottom, Height = 40 };
             b.Click += (s, e) => {
                 upsLicense = t1.Text; upsUser = t2.Text; upsPass = t3.Text;
                 File.WriteAllLines(settingsPath, new[] { upsLicense, upsUser, upsPass });
                 f.Close();
             };
-            f.Controls.Add(t3); f.Controls.Add(new Label { Text = "Hasło:", Dock = DockStyle.Top });
-            f.Controls.Add(t2); f.Controls.Add(new Label { Text = "User ID:", Dock = DockStyle.Top });
-            f.Controls.Add(t1); f.Controls.Add(new Label { Text = "Licencja:", Dock = DockStyle.Top });
+            f.Controls.Add(t3); f.Controls.Add(new Label { Text = "Hasło UPS:", Dock = DockStyle.Top, Height = 25 });
+            f.Controls.Add(t2); f.Controls.Add(new Label { Text = "User ID:", Dock = DockStyle.Top, Height = 25 });
+            f.Controls.Add(t1); f.Controls.Add(new Label { Text = "Access License Number:", Dock = DockStyle.Top, Height = 25 });
             f.Controls.Add(b); f.ShowDialog();
         }
 
         private async void BtnRun_Click(object sender, EventArgs e) {
             btnRun.Enabled = false; apiSuccess = 0; apiFailed = 0;
-            try { await GenerateReportAsync(); MessageBox.Show("Raport wygenerowany!"); }
-            catch (Exception ex) { MessageBox.Show("Błąd: " + ex.Message); }
+            try { 
+                await GenerateReportAsync(); 
+                MessageBox.Show("Raport wygenerowany pomyślnie w wybranym folderze!"); 
+            }
+            catch (Exception ex) { MessageBox.Show("Błąd krytyczny: " + ex.Message); }
             finally { btnRun.Enabled = true; lblStatus.Text = "Gotowe."; }
         }
 
@@ -163,14 +197,14 @@ namespace Ak0Analyzer
             var data = new Dictionary<string, SortedDictionary<DateTime, string>>();
             var dates = sortedFiles.Select(x => x.Date).ToList();
             DateTime lastDay = dates.Max();
-            List<string> failedPackages = new List<string>();
             var personMissedScans = new Dictionary<string, int>();
 
             foreach (var f in sortedFiles) {
                 using (var wb = new XLWorkbook(f.Path)) {
-                    var ws = wb.Worksheets.FirstOrDefault();
+                    var ws = wb.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("AK0")) ?? wb.Worksheets.FirstOrDefault();
                     if (ws == null) continue;
-                    foreach (var row in ws.RangeUsed().RowsUsed().Skip(1)) {
+                    var range = ws.RangeUsed(); if (range == null) continue;
+                    foreach (var row in range.RowsUsed().Skip(1)) {
                         string l = row.Cell(1).GetString().Trim();
                         string p = row.Cell(2).GetString().Trim();
                         if (selectedLocs.Contains(l)) {
@@ -203,7 +237,7 @@ namespace Ak0Analyzer
                         bool isActuallyOutside = false;
 
                         if (missingLast && chkEnableUPS.Checked && !string.IsNullOrEmpty(upsLicense)) {
-                            lblStatus.Text = "UPS API: " + pkg.Key + "..."; Application.DoEvents();
+                            lblStatus.Text = "Sprawdzam UPS: " + pkg.Key + "..."; Application.DoEvents();
                             var res = await GetUpsTracking(pkg.Key);
                             ws.Cell(r, colStatus).Value = res.Item1;
                             ws.Cell(r, colCity).Value = res.Item2;
@@ -219,14 +253,14 @@ namespace Ak0Analyzer
                             else if (d > first) {
                                 var cell = ws.Cell(r, i + 2);
                                 if (isActuallyOutside && d == lastDay) {
-                                    cell.Value = "DORĘCZONA/WYDANA"; cell.Style.Fill.BackgroundColor = XLColor.Green; cell.Style.Font.FontColor = XLColor.White;
+                                    cell.Value = "DORĘCZONA"; cell.Style.Fill.BackgroundColor = XLColor.Green; cell.Style.Font.FontColor = XLColor.White;
                                 } else {
                                     cell.Value = "BRAK SKANU"; cell.Style.Fill.BackgroundColor = XLColor.Salmon;
                                     var key = new ScheduleKey { Loc = pkg.Value[first], Day = d.Day };
-                                    if (staffSchedule.TryGetValue(key, out string p)) {
-                                        cell.CreateComment().AddText(p);
-                                        if (!personMissedScans.ContainsKey(p)) personMissedScans[p] = 0;
-                                        personMissedScans[p]++;
+                                    if (staffSchedule.TryGetValue(key, out string pers)) {
+                                        cell.CreateComment().AddText(pers);
+                                        if (!personMissedScans.ContainsKey(pers)) personMissedScans[pers] = 0;
+                                        personMissedScans[pers]++;
                                     }
                                 }
                             }
@@ -239,7 +273,7 @@ namespace Ak0Analyzer
                 foreach (var kvp in personMissedScans.OrderByDescending(x => x.Value)) {
                     wsStat.Cell(sr, 1).Value = kvp.Key; wsStat.Cell(sr, 2).Value = kvp.Value; sr++;
                 }
-                ws.Columns().AdjustToContents();
+                ws.Columns().AdjustToContents(); wsStat.Columns().AdjustToContents();
                 report.SaveAs(Path.Combine(selectedFolderPath, "Raport_AK0_" + DateTime.Now.ToString("ddMMyy_HHmm") + ".xlsx"));
             }
         }
@@ -255,7 +289,7 @@ namespace Ak0Analyzer
                     var pkg = doc.Descendants("Package").FirstOrDefault();
                     if (pkg != null) {
                         var act = pkg.Descendants("Activity").FirstOrDefault();
-                        string st = act?.Descendants("Status")?.FirstOrDefault()?.Descendants("Description")?.FirstOrDefault()?.Value ?? "Brak";
+                        string st = act?.Descendants("Status")?.FirstOrDefault()?.Descendants("StatusType")?.FirstOrDefault()?.Descendants("Description")?.FirstOrDefault()?.Value ?? "Brak";
                         string ct = act?.Descendants("ActivityLocation")?.FirstOrDefault()?.Descendants("Address")?.FirstOrDefault()?.Descendants("City")?.FirstOrDefault()?.Value ?? "Nieznane";
                         apiSuccess++; return new Tuple<string, string>(st, ct);
                     }
