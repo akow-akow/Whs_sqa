@@ -36,7 +36,7 @@ namespace Ak0Analyzer
             btnSelectFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER AK0", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.LightSkyBlue, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
             btnSelectFolder.Click += (s, e) => SelectFolder();
 
-            btnLoadSchedule = new Button() { Text = "📅 2. WCZYTAJ GRAFIK (OPCJA)", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.NavajoWhite, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
+            btnLoadSchedule = new Button() { Text = "📅 2. WCZYTAJ GRAFIK (ARKUSZ)", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.NavajoWhite, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
             btnLoadSchedule.Click += (s, e) => LoadScheduleWindow();
 
             topPanel.Controls.Add(btnSelectFolder);
@@ -47,7 +47,7 @@ namespace Ak0Analyzer
             btnRun = new Button() { Text = "🚀 3. GENERUJ RAPORT", Dock = DockStyle.Bottom, Height = 70, BackColor = System.Drawing.Color.LightGreen, Enabled = false, Font = new System.Drawing.Font("Segoe UI", 11, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
             btnRun.Click += BtnRun_Click;
 
-            lblStatus = new Label() { Text = "Wybierz folder...", Dock = DockStyle.Bottom, Height = 40, TextAlign = System.Drawing.ContentAlignment.MiddleCenter, BackColor = System.Drawing.Color.WhiteSmoke, BorderStyle = BorderStyle.FixedSingle };
+            lblStatus = new Label() { Text = "Gotowy", Dock = DockStyle.Bottom, Height = 40, TextAlign = System.Drawing.ContentAlignment.MiddleCenter, BackColor = System.Drawing.Color.WhiteSmoke, BorderStyle = BorderStyle.FixedSingle };
 
             this.Controls.Add(clbWarehouses);
             this.Controls.Add(new Label() { Text = " Magazyny do analizy:", Dock = DockStyle.Top, Height = 25, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) });
@@ -58,31 +58,71 @@ namespace Ak0Analyzer
 
         private void LoadScheduleWindow()
         {
-            Form f = new Form() { Text = "Wklej grafik (Ctrl+V)", Size = new System.Drawing.Size(600, 450), StartPosition = FormStartPosition.CenterParent };
-            TextBox tb = new TextBox() { Multiline = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Font = new System.Drawing.Font("Consolas", 9) };
-            Button btnSave = new Button() { Text = "ZAPISZ", Dock = DockStyle.Bottom, Height = 50, BackColor = System.Drawing.Color.PaleGreen };
-            btnSave.Click += (s, e) => { ParseSchedule(tb.Text); f.Close(); };
-            f.Controls.Add(tb);
-            f.Controls.Add(btnSave);
+            Form f = new Form() { Text = "Arkusz Grafiku - Wklej dane (Ctrl+V)", Size = new System.Drawing.Size(800, 500), StartPosition = FormStartPosition.CenterParent };
+            DataGridView dgv = new DataGridView() { 
+                Dock = DockStyle.Fill, 
+                BackgroundColor = System.Drawing.Color.White,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
+                AllowUserToAddRows = false
+            };
+            
+            Button btnProcess = new Button() { Text = "ZATWIERDŹ DANE Z TABELI", Dock = DockStyle.Bottom, Height = 50, BackColor = System.Drawing.Color.PaleGreen };
+
+            // Obsługa skrótu Ctrl+V w tabeli
+            dgv.KeyDown += (s, e) => {
+                if (e.Control && e.KeyCode == Keys.V) {
+                    PasteToDgv(dgv);
+                }
+            };
+
+            btnProcess.Click += (s, e) => {
+                ProcessDgvData(dgv);
+                f.Close();
+            };
+
+            f.Controls.Add(dgv);
+            f.Controls.Add(new Label() { Text = "Kliknij w tabelę i wklej dane z Excela (Ctrl+V). Pierwszy wiersz musi być numerami dni.", Dock = DockStyle.Top, Height = 30 });
+            f.Controls.Add(btnProcess);
             f.ShowDialog();
         }
 
-        private void ParseSchedule(string data)
+        private void PasteToDgv(DataGridView dgv)
+        {
+            string clipboardText = Clipboard.GetText();
+            if (string.IsNullOrEmpty(clipboardText)) return;
+
+            dgv.Rows.Clear();
+            dgv.Columns.Clear();
+
+            string[] lines = clipboardText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length == 0) return;
+
+            // Tworzenie kolumn na podstawie pierwszego wiersza
+            string[] firstLineCells = lines[0].Split('\t');
+            for (int i = 0; i < firstLineCells.Length; i++) {
+                dgv.Columns.Add("col" + i, firstLineCells[i]);
+            }
+
+            // Dodawanie reszty wierszy
+            for (int i = 1; i < lines.Length; i++) {
+                dgv.Rows.Add(lines[i].Split('\t'));
+            }
+        }
+
+        private void ProcessDgvData(DataGridView dgv)
         {
             staffSchedule.Clear();
-            var lines = data.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-            if (lines.Length < 2) return;
-            var headers = lines[0].Split('\t'); 
-            for (int i = 1; i < lines.Length; i++)
-            {
-                var cols = lines[i].Split('\t');
-                if (cols.Length < 2) continue;
-                string mappedLoc = MapLocationName(cols[0].ToLower().Trim());
-                for (int d = 1; d < cols.Length; d++)
-                {
-                    if (d < headers.Length && int.TryParse(headers[d], out int dayNum))
-                    {
-                        string person = cols[d].Trim();
+            if (dgv.Columns.Count < 2) return;
+
+            // Nagłówki kolumn to nasze dni miesiąca
+            for (int r = 0; r < dgv.Rows.Count; r++) {
+                string rawLoc = dgv.Rows[r].Cells[0].Value?.ToString() ?? "";
+                string mappedLoc = MapLocationName(rawLoc.ToLower().Trim());
+
+                for (int c = 1; c < dgv.Columns.Count; c++) {
+                    string dayHeader = dgv.Columns[c].HeaderText;
+                    if (int.TryParse(dayHeader, out int dayNum)) {
+                        string person = dgv.Rows[r].Cells[c].Value?.ToString()?.Trim() ?? "";
                         if (!string.IsNullOrEmpty(person)) {
                             staffSchedule[(mappedLoc, dayNum)] = person;
                             if (mappedLoc == "IWMSMALLS1") staffSchedule[("IWMSMALLSXX", dayNum)] = person;
@@ -90,6 +130,7 @@ namespace Ak0Analyzer
                     }
                 }
             }
+            lblStatus.Text = "Grafik przetworzony pomyślnie!";
         }
 
         private string MapLocationName(string raw)
@@ -105,10 +146,8 @@ namespace Ak0Analyzer
 
         private void SelectFolder()
         {
-            using (FolderBrowserDialog fbd = new FolderBrowserDialog() { AutoUpgradeEnabled = false })
-            {
-                if (fbd.ShowDialog() == DialogResult.OK)
-                {
+            using (FolderBrowserDialog fbd = new FolderBrowserDialog() { AutoUpgradeEnabled = false }) {
+                if (fbd.ShowDialog() == DialogResult.OK) {
                     selectedFolderPath = fbd.SelectedPath;
                     ScanFiles();
                 }
@@ -123,8 +162,7 @@ namespace Ak0Analyzer
 
             var files = Directory.GetFiles(selectedFolderPath, "*.xlsx");
             var valid = new List<(string, DateTime)>();
-            foreach (var f in files)
-            {
+            foreach (var f in files) {
                 string fn = Path.GetFileName(f);
                 if (fn.StartsWith("~$")) continue;
                 var m = Regex.Match(fn, @"(\d{2}\.\d{2}\.\d{4})");
