@@ -3,7 +3,7 @@ name: Build EXE
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # Pozwala uruchomić ręcznie
+  workflow_dispatch:
 
 jobs:
   build:
@@ -12,20 +12,19 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
-
-    - name: Setup NuGet
-      uses: NuGet/setup-nuget@v1
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x' # SDK potrzebne do kompilacji
 
     - name: Restore NuGet Packages
-      run: nuget restore Ak0Analyzer.csproj
+      run: dotnet restore Ak0Analyzer.csproj
 
     - name: Build App
-      run: msbuild Ak0Analyzer.csproj /p:Configuration=Release
+      run: dotnet build Ak0Analyzer.csproj -c Release
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: AK0-Analyzer-EXE
-        path: bin/Release/Ak0Analyzer1.exe
+        path: bin/Release/net48/
