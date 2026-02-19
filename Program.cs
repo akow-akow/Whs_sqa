@@ -22,7 +22,7 @@ namespace Ak0Analyzer
         private HashSet<string> allDetectedLocs = new HashSet<string>();
         private string selectedFolderPath = "";
         private Dictionary<ScheduleKey, string> staffSchedule = new Dictionary<ScheduleKey, string>();
-        private HashSet<string> releasedPackages = new HashSet<string>(); // Zbiór paczek RELEASED
+        private HashSet<string> releasedPackages = new HashSet<string>();
 
         private string upsLicense = "", upsUser = "", upsPass = "";
         private readonly string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ups_settings.ini");
@@ -38,7 +38,7 @@ namespace Ak0Analyzer
         {
             LoadSettings();
             this.Text = "AK0 Warehouse Scan Quality Analyzer";
-            this.Size = new System.Drawing.Size(550, 900);
+            this.Size = new System.Drawing.Size(550, 920);
             this.StartPosition = FormStartPosition.CenterScreen;
             try { if (File.Exists("icon.ico")) this.Icon = new System.Drawing.Icon("icon.ico"); } catch { }
 
@@ -47,10 +47,10 @@ namespace Ak0Analyzer
             btnSelectFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER AK0", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.LightSkyBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnSelectFolder.Click += (s, e) => SelectFolder();
             
-            btnLoadSchedule = new Button() { Text = "📅 2. WCZYTAJ GRAFIK", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.NavajoWhite, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadSchedule = new Button() { Text = "📅 2a. WCZYTAJ GRAFIK", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.NavajoWhite, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadSchedule.Click += (s, e) => LoadScheduleWindow();
 
-            btnLoadReleased = new Button() { Text = "🚚 2b. WKLEJ LISTĘ RELEASED", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadReleased = new Button() { Text = "🚚 2b. PRZESYŁKI ZWOLNIONE (DAT/TEKST)", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadReleased.Click += (s, e) => LoadReleasedWindow();
             
             btnSettings = new Button() { Text = "⚙️ USTAWIENIA UPS API", Size = new System.Drawing.Size(500, 40), BackColor = System.Drawing.Color.LightGray, FlatStyle = FlatStyle.Flat };
@@ -90,29 +90,39 @@ namespace Ak0Analyzer
 
         private void LoadReleasedWindow()
         {
-            Form f = new Form() { Text = "Wklej raport RELEASED (Ctrl+V)", Size = new System.Drawing.Size(600, 400), StartPosition = FormStartPosition.CenterParent };
+            Form f = new Form() { Text = "Zarządzanie przesyłkami RELEASED", Size = new System.Drawing.Size(600, 500), StartPosition = FormStartPosition.CenterParent };
+            Label lblInfo = new Label() { Text = "Wklej raport LUB wybierz plik WHOFILEXPT.DAT:", Dock = DockStyle.Top, Height = 30, TextAlign = System.Drawing.ContentAlignment.BottomLeft, Padding = new Padding(5) };
             TextBox txt = new TextBox() { Multiline = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical, Font = new System.Drawing.Font("Consolas", 9) };
-            Button btn = new Button() { Text = "Przetwórz listę Released", Dock = DockStyle.Bottom, Height = 40, BackColor = System.Drawing.Color.LightSteelBlue };
+            Panel pnlButtons = new Panel() { Dock = DockStyle.Bottom, Height = 100 };
+            Button btnFile = new Button() { Text = "📁 WYBIERZ PLIK WHOFILEXPT.DAT", Size = new System.Drawing.Size(570, 45), Location = new System.Drawing.Point(10, 5), BackColor = System.Drawing.Color.LightCyan, FlatStyle = FlatStyle.Flat };
+            Button btnProcess = new Button() { Text = "✅ PRZETWÓRZ WKLEJONY TEKST", Size = new System.Drawing.Size(570, 40), Location = new System.Drawing.Point(10, 55), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat };
             
-            btn.Click += (s, e) => {
+            pnlButtons.Controls.Add(btnFile);
+            pnlButtons.Controls.Add(btnProcess);
+
+            Action<string[]> processLines = (lines) => {
                 releasedPackages.Clear();
-                string[] lines = txt.Lines;
-                foreach (var line in lines)
-                {
+                foreach (var line in lines) {
                     if (string.IsNullOrWhiteSpace(line)) continue;
                     string[] parts = line.Split(',');
-                    if (parts.Length > 5)
-                    {
-                        // Numer paczki jest po 5 przecinku, czyścimy spacje
+                    if (parts.Length > 5) {
                         string trackNum = parts[5].Trim();
                         if (!string.IsNullOrEmpty(trackNum)) releasedPackages.Add(trackNum);
                     }
                 }
-                MessageBox.Show($"Wczytano {releasedPackages.Count} paczek ze statusem RELEASED.");
+                MessageBox.Show($"Wczytano {releasedPackages.Count} unikalnych numerów paczek.");
                 f.Close();
             };
 
-            f.Controls.Add(txt); f.Controls.Add(btn); f.ShowDialog();
+            btnFile.Click += (s, e) => {
+                using (OpenFileDialog ofd = new OpenFileDialog() { Filter = "Pliki DAT (*.dat)|*.dat|Wszystkie pliki (*.*)|*.*" }) {
+                    if (ofd.ShowDialog() == DialogResult.OK) processLines(File.ReadAllLines(ofd.FileName));
+                }
+            };
+            btnProcess.Click += (s, e) => processLines(txt.Lines);
+
+            f.Controls.Add(txt); f.Controls.Add(lblInfo); f.Controls.Add(pnlButtons);
+            f.ShowDialog();
         }
 
         private void ApplyLocFilter() {
@@ -289,10 +299,8 @@ namespace Ak0Analyzer
                             if (pkg.Value.ContainsKey(d)) ws.Cell(r, i + 2).Value = pkg.Value[d];
                             else if (d > first) {
                                 var cell = ws.Cell(r, i + 2);
-                                
                                 if (isReleased && d == lastDay) {
-                                    cell.Value = "RELEASED"; 
-                                    cell.Style.Fill.BackgroundColor = XLColor.LightSkyBlue;
+                                    cell.Value = "RELEASED"; cell.Style.Fill.BackgroundColor = XLColor.LightSkyBlue;
                                 } else if (isActuallyOutside && d == lastDay) {
                                     cell.Value = "DORĘCZONA"; cell.Style.Fill.BackgroundColor = XLColor.Green; cell.Style.Font.FontColor = XLColor.White;
                                 } else {
