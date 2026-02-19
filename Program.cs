@@ -15,13 +15,14 @@ namespace Ak0Analyzer
     public class MainForm : Form
     {
         private CheckedListBox clbWarehouses;
-        private Button btnRun, btnSelectFolder, btnLoadSchedule, btnSettings;
+        private Button btnRun, btnSelectFolder, btnLoadSchedule, btnSettings, btnLoadReleased;
         private CheckBox chkEnableUPS, chkFilterI, chkFilterE;
         private Label lblStatus;
         private List<FileItem> sortedFiles;
         private HashSet<string> allDetectedLocs = new HashSet<string>();
         private string selectedFolderPath = "";
         private Dictionary<ScheduleKey, string> staffSchedule = new Dictionary<ScheduleKey, string>();
+        private HashSet<string> releasedPackages = new HashSet<string>(); // Zbiór paczek RELEASED
 
         private string upsLicense = "", upsUser = "", upsPass = "";
         private readonly string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ups_settings.ini");
@@ -36,18 +37,21 @@ namespace Ak0Analyzer
         public MainForm()
         {
             LoadSettings();
-            this.Text = "WSQA PRO - AK0 Analyzer";
-            this.Size = new System.Drawing.Size(550, 850);
+            this.Text = "AK0 Warehouse Scan Quality Analyzer";
+            this.Size = new System.Drawing.Size(550, 900);
             this.StartPosition = FormStartPosition.CenterScreen;
             try { if (File.Exists("icon.ico")) this.Icon = new System.Drawing.Icon("icon.ico"); } catch { }
 
-            FlowLayoutPanel topPanel = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 220, Padding = new Padding(10) };
+            FlowLayoutPanel topPanel = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 280, Padding = new Padding(10) };
             
             btnSelectFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER AK0", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.LightSkyBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnSelectFolder.Click += (s, e) => SelectFolder();
             
             btnLoadSchedule = new Button() { Text = "📅 2. WCZYTAJ GRAFIK", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.NavajoWhite, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadSchedule.Click += (s, e) => LoadScheduleWindow();
+
+            btnLoadReleased = new Button() { Text = "🚚 2b. WKLEJ LISTĘ RELEASED", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadReleased.Click += (s, e) => LoadReleasedWindow();
             
             btnSettings = new Button() { Text = "⚙️ USTAWIENIA UPS API", Size = new System.Drawing.Size(500, 40), BackColor = System.Drawing.Color.LightGray, FlatStyle = FlatStyle.Flat };
             btnSettings.Click += (s, e) => ShowSettingsWindow();
@@ -61,6 +65,7 @@ namespace Ak0Analyzer
 
             topPanel.Controls.Add(btnSelectFolder);
             topPanel.Controls.Add(btnLoadSchedule);
+            topPanel.Controls.Add(btnLoadReleased);
             topPanel.Controls.Add(btnSettings);
             topPanel.Controls.Add(gpFilters);
 
@@ -81,6 +86,33 @@ namespace Ak0Analyzer
             this.Controls.Add(pnlOptions);
             this.Controls.Add(lblStatus);
             this.Controls.Add(btnRun);
+        }
+
+        private void LoadReleasedWindow()
+        {
+            Form f = new Form() { Text = "Wklej raport RELEASED (Ctrl+V)", Size = new System.Drawing.Size(600, 400), StartPosition = FormStartPosition.CenterParent };
+            TextBox txt = new TextBox() { Multiline = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical, Font = new System.Drawing.Font("Consolas", 9) };
+            Button btn = new Button() { Text = "Przetwórz listę Released", Dock = DockStyle.Bottom, Height = 40, BackColor = System.Drawing.Color.LightSteelBlue };
+            
+            btn.Click += (s, e) => {
+                releasedPackages.Clear();
+                string[] lines = txt.Lines;
+                foreach (var line in lines)
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    string[] parts = line.Split(',');
+                    if (parts.Length > 5)
+                    {
+                        // Numer paczki jest po 5 przecinku, czyścimy spacje
+                        string trackNum = parts[5].Trim();
+                        if (!string.IsNullOrEmpty(trackNum)) releasedPackages.Add(trackNum);
+                    }
+                }
+                MessageBox.Show($"Wczytano {releasedPackages.Count} paczek ze statusem RELEASED.");
+                f.Close();
+            };
+
+            f.Controls.Add(txt); f.Controls.Add(btn); f.ShowDialog();
         }
 
         private void ApplyLocFilter() {
@@ -242,6 +274,7 @@ namespace Ak0Analyzer
                     if (missing) {
                         ws.Cell(r, 1).Value = pkg.Key;
                         bool isActuallyOutside = false;
+                        bool isReleased = releasedPackages.Contains(pkg.Key);
 
                         if (!pkg.Value.ContainsKey(lastDay) && chkEnableUPS.Checked && !string.IsNullOrEmpty(upsLicense)) {
                             lblStatus.Text = "UPS: " + pkg.Key + "..."; Application.DoEvents();
@@ -256,7 +289,11 @@ namespace Ak0Analyzer
                             if (pkg.Value.ContainsKey(d)) ws.Cell(r, i + 2).Value = pkg.Value[d];
                             else if (d > first) {
                                 var cell = ws.Cell(r, i + 2);
-                                if (isActuallyOutside && d == lastDay) {
+                                
+                                if (isReleased && d == lastDay) {
+                                    cell.Value = "RELEASED"; 
+                                    cell.Style.Fill.BackgroundColor = XLColor.LightSkyBlue;
+                                } else if (isActuallyOutside && d == lastDay) {
                                     cell.Value = "DORĘCZONA"; cell.Style.Fill.BackgroundColor = XLColor.Green; cell.Style.Font.FontColor = XLColor.White;
                                 } else {
                                     cell.Value = "BRAK SKANU"; cell.Style.Fill.BackgroundColor = XLColor.Salmon;
