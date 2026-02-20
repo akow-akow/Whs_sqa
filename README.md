@@ -1,28 +1,50 @@
-# WSQA PRO + UPS Auto-Logic - Instrukcja Obsługi
+📦 AK0 Warehouse Scan Quality Analyzer
+AK0 Warehouse Scan Quality Analyzer to wyspecjalizowane narzędzie stworzone dla działów logistyki i operacji magazynowych (HUB Stryków / Dobra). Program automatyzuje proces wykrywania brakujących skanów w codziennych raportach inwentaryzacyjnych (AK0) i przypisuje odpowiedzialność za dany sektor na podstawie grafiku pracowników.
+🚀 Główne Funkcje
+•	Analiza historyczna: Porównuje wiele plików Excel z różnych dni, aby wykryć paczki, które przestały być skanowane (zniknęły z inwentarza).
+•	Inteligentne mapowanie grafiku: Automatycznie przypisuje imię i nazwisko osoby odpowiedzialnej za dany sektor (Magazyn/Smalls) w konkretnym dniu.
+•	Weryfikacja UPS API (Auto-Green): Automatycznie sprawdza status paczki w systemie UPS. Jeśli paczka ma status "Delivered" poza HUBem, program oznacza ją jako bezpieczną (zieloną).
+•	Obsługa przesyłek zwolnionych (Released): Możliwość wczytania pliku WHOFILEXPT.DAT lub wklejenia tekstu z systemu, aby oznaczyć paczki, które opuściły magazyn, ale nie mają jeszcze skanu doręczenia.
+•	Generowanie raportów Excel: Tworzy przejrzysty arkusz z historią skanów, statusami UPS i komentarzami dotyczącymi personelu.
+________________________________________
+🛠 Instrukcja Obsługi
+1. Przygotowanie plików
+Program szuka plików Excel w wybranym folderze. Pliki muszą:
+•	Zaczynać się od frazy "AK0".
+•	Zawierać datę w formacie dd.MM.yyyy (np. AK0_raport_19.02.2026.xlsx).
+2. Konfiguracja grafiku (Krok 2a)
+Kliknij przycisk "WCZYTAJ GRAFIK" i wklej dane z arkusza grafiku (Ctrl+V). Program obsługuje:
+•	Sektory typu MAG 1, MAG 2 itp. (mapowane na IWMAGAZYN / EWMAGEXP).
+•	Sektory Smalls (automatyczne łączenie dwóch pracowników z sąsiadujących wierszy).
+3. Przesyłki Zwolnione (Krok 2b)
+Jeśli posiadasz listę przesyłek, które przeszły przez "Release", kliknij "PRZESYŁKI ZWOLNIONE". Możesz:
+•	Wskazać plik systemowy WHOFILEXPT.DAT.
+•	Wkleić surowy tekst z raportu.
+Paczki te zostaną oznaczone w raporcie kolorem jasnoniebieskim.
+4. Generowanie Raportu (Krok 3)
+•	Wybierz magazyny, które Cię interesują (Filtry Import/Export).
+•	(Opcjonalnie) Zaznacz "Automatyczna weryfikacja UPS", jeśli masz skonfigurowane API.
+•	Kliknij "GENERUJ RAPORT". Wynikowy plik Excel pojawi się w folderze z raportami AK0.
+________________________________________
+🎨 Legenda kolorów w raporcie
+Kolor	Znaczenie
+Biały	Paczka obecna na stanie (zeskanowana).
+Czerwony (Salmon)	BRAK SKANU – paczka powinna być, a jej nie ma.
+Zielony	DORĘCZONA – UPS potwierdza doręczenie (paczka bezpieczna).
+Jasnoniebieski	RELEASED – paczka zwolniona do wyjazdu (znaleziona w pliku .DAT).
+________________________________________
+⚙️ Wymagania techniczne
+•	System operacyjny: Windows 10/11.
+•	Biblioteki: .NET Framework 4.7.2+.
+•	Zależności: ClosedXML (do obsługi plików Excel).
+•	Uprawnienia: Dostęp do zapisu/odczytu w wybranym folderze z raportami.
+________________________________________
+🔐 Konfiguracja UPS API
+Aby funkcja Auto-Green działała, należy w ustawieniach (ikona zębatki) wprowadzić dane dostępowe do UPS XML API:
+1.	Access License Number
+2.	User ID
+3.	Password
+Dane te są przechowywane lokalnie w pliku ups_settings.ini.
+________________________________________
+Uwaga: Program jest narzędziem wspomagającym. Zawsze należy zweryfikować krytyczne braki w systemach nadrzędnych.
 
-Program służy do analizy braków w skanowaniu paczek na podstawie plików AK0 oraz weryfikacji ich statusu w systemie UPS.
-
-## 1. Wybór folderu AK0
-- Kliknij "1. WYBIERZ FOLDER AK0" i wskaż folder zawierający pliki Excel o nazwie zaczynającej się od "AK0" (np. AK0_15.02.2024.xlsx).
-- Program wymaga minimum 2 plików, aby wyliczyć braki między dniami.
-
-## 2. Wczytywanie Grafiku (Ranking Pracowników)
-- Kliknij "2. WCZYTAJ GRAFIK".
-- Otwórz swój grafik w Excelu, zaznacz obszar (Lokalizacja w pierwszej kolumnie, dni miesiąca w nagłówkach) i skopiuj (Ctrl+C).
-- Wróć do programu i w oknie grafiku naciśnij **Ctrl+V**.
-- Kliknij "ZAPISZ I ZAMKNIJ". Program będzie teraz wiedział, kto pracował na danej lokalizacji w dniu wystąpienia braku.
-
-## 3. Konfiguracja UPS API
-- Kliknij "USTAWIENIA UPS API" i wprowadź swoje dane (License Number, UserID, Password).
-- Dane zostaną zapisane w pliku `ups_settings.ini` w folderze programu.
-
-## 4. Generowanie Raportu
-- Zaznacz magazyny, które chcesz przeanalizować.
-- Zaznacz opcję "Automatycznie oznaczaj paczki poza Strykowem" (Auto-Green).
-- Kliknij "3. GENERUJ RAPORT".
-
-### Logika "Auto-Green":
-Jeśli program wykryje brak skanu w ostatnim dniu, zapyta serwer UPS o status. Jeśli lokalizacja w UPS jest inna niż "Dobra" lub "Stryków", program uzna paczkę za wydaną (DORĘCZONA/WYDANA), oznaczy ją na zielono i nie doliczy błędu pracownikowi w rankingu.
-
-### Wynik:
-Nowy plik Excel zostanie zapisany w folderze źródłowym pod nazwą `Raport_AK0_Data_Godzina.xlsx`.
