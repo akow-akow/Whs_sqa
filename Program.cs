@@ -47,18 +47,18 @@ namespace Ak0Analyzer
             btnSelectFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER AK0", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.LightSkyBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnSelectFolder.Click += (s, e) => SelectFolder();
             
-            btnLoadSchedule = new Button() { Text = "📅 2a. WCZYTAJ GRAFIK", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.NavajoWhite, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadSchedule = new Button() { Text = "📅 2. WCZYTAJ GRAFIK", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.NavajoWhite, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadSchedule.Click += (s, e) => LoadScheduleWindow();
 
-            btnLoadReleased = new Button() { Text = "🚚 2b. PRZESYŁKI ZWOLNIONE (DAT/TEKST)", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadReleased = new Button() { Text = "🚚 3. PRZESYŁKI ZWOLNIONE z WHOFILEXPT.DAT", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadReleased.Click += (s, e) => LoadReleasedWindow();
             
             btnSettings = new Button() { Text = "⚙️ USTAWIENIA UPS API", Size = new System.Drawing.Size(500, 40), BackColor = System.Drawing.Color.LightGray, FlatStyle = FlatStyle.Flat };
             btnSettings.Click += (s, e) => ShowSettingsWindow();
 
             GroupBox gpFilters = new GroupBox() { Text = "Filtry magazynów (Początek nazwy)", Size = new System.Drawing.Size(500, 50) };
-            chkFilterI = new CheckBox() { Text = "Import (I...)", Checked = true, AutoSize = true, Location = new System.Drawing.Point(10, 20) };
-            chkFilterE = new CheckBox() { Text = "Export (E...)", Checked = true, AutoSize = true, Location = new System.Drawing.Point(150, 20) };
+            chkFilterI = new CheckBox() { Text = "Import (IWM...)", Checked = true, AutoSize = true, Location = new System.Drawing.Point(10, 20) };
+            chkFilterE = new CheckBox() { Text = "Export (EWM...)", Checked = true, AutoSize = true, Location = new System.Drawing.Point(150, 20) };
             chkFilterI.CheckedChanged += (s, e) => ApplyLocFilter();
             chkFilterE.CheckedChanged += (s, e) => ApplyLocFilter();
             gpFilters.Controls.Add(chkFilterI); gpFilters.Controls.Add(chkFilterE);
@@ -72,10 +72,10 @@ namespace Ak0Analyzer
             clbWarehouses = new CheckedListBox() { Dock = DockStyle.Fill, CheckOnClick = true, Font = new System.Drawing.Font("Segoe UI", 10) };
             
             Panel pnlOptions = new Panel() { Dock = DockStyle.Bottom, Height = 40, BackColor = System.Drawing.Color.WhiteSmoke };
-            chkEnableUPS = new CheckBox() { Text = "Automatyczna weryfikacja UPS (Auto-Green)", AutoSize = true, Location = new System.Drawing.Point(10, 10), Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            chkEnableUPS = new CheckBox() { Text = "Automatyczna weryfikacja UPS API", AutoSize = true, Location = new System.Drawing.Point(10, 10), Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             pnlOptions.Controls.Add(chkEnableUPS);
 
-            btnRun = new Button() { Text = "🚀 3. GENERUJ RAPORT", Dock = DockStyle.Bottom, Height = 70, BackColor = System.Drawing.Color.LightGreen, Enabled = false, Font = new System.Drawing.Font("Segoe UI", 11, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
+            btnRun = new Button() { Text = "🚀 4. GENERUJ RAPORT", Dock = DockStyle.Bottom, Height = 70, BackColor = System.Drawing.Color.LightGreen, Enabled = false, Font = new System.Drawing.Font("Segoe UI", 11, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
             btnRun.Click += BtnRun_Click;
 
             lblStatus = new Label() { Text = "Gotowy", Dock = DockStyle.Bottom, Height = 40, TextAlign = System.Drawing.ContentAlignment.MiddleCenter, BackColor = System.Drawing.Color.WhiteSmoke, BorderStyle = BorderStyle.FixedSingle };
@@ -245,6 +245,8 @@ namespace Ak0Analyzer
         private async System.Threading.Tasks.Task GenerateReportAsync() {
             var selectedLocs = clbWarehouses.CheckedItems.Cast<string>().ToList();
             var data = new Dictionary<string, SortedDictionary<DateTime, string>>();
+            var pkgExistsAnywhereToday = new HashSet<string>(); // Nowa lista: paczki obecne GDZIEKOLWIEK dzisiaj
+            
             var dates = sortedFiles.Select(x => x.Date).ToList();
             DateTime lastDay = dates.Max();
 
@@ -255,6 +257,11 @@ namespace Ak0Analyzer
                     foreach (var row in range.RowsUsed().Skip(1)) {
                         string l = row.Cell(1).GetString().Trim();
                         string p = row.Cell(2).GetString().Trim();
+
+                        // POPRAWKA 1: Jeśli to ostatni dzień, zapisujemy że paczka w ogóle ISTNIEJE w systemie
+                        if (f.Date == lastDay) pkgExistsAnywhereToday.Add(p);
+
+                        // Zbieramy dane tylko dla zaznaczonych magazynów
                         if (selectedLocs.Contains(l)) {
                             if (!data.ContainsKey(p)) data[p] = new SortedDictionary<DateTime, string>();
                             data[p][f.Date] = l;
@@ -278,15 +285,22 @@ namespace Ak0Analyzer
                 int r = 2;
                 foreach (var pkg in data) {
                     DateTime first = pkg.Value.Keys.Min();
-                    DateTime lastScan = pkg.Value.Keys.Max();
-                    bool missing = !pkg.Value.ContainsKey(lastDay) || pkg.Value.Count < dates.Count(d => d >= first && d <= lastScan);
+                    DateTime lastScanInSelected = pkg.Value.Keys.Max();
+                    
+                    // POPRAWKA 2: Zmieniony warunek "missing"
+                    // Paczka jest zaginiona TYLKO JEŚLI:
+                    // 1. Nie ma jej w wybranych magazynach dzisiaj ORAZ nie ma jej w OGÓLE w całym raporcie dzisiejszym (pkgExistsAnywhereToday)
+                    // LUB
+                    // 2. Ma przerwę w skanowaniu wewnątrz wybranego okresu.
+                    bool existsTodayAnywhere = pkgExistsAnywhereToday.Contains(pkg.Key);
+                    bool missing = (!pkg.Value.ContainsKey(lastDay) && !existsTodayAnywhere) || pkg.Value.Count < dates.Count(d => d >= first && d <= lastScanInSelected);
 
                     if (missing) {
                         ws.Cell(r, 1).Value = pkg.Key;
                         bool isActuallyOutside = false;
                         bool isReleased = releasedPackages.Contains(pkg.Key);
 
-                        if (!pkg.Value.ContainsKey(lastDay) && chkEnableUPS.Checked && !string.IsNullOrEmpty(upsLicense)) {
+                        if (!existsTodayAnywhere && chkEnableUPS.Checked && !string.IsNullOrEmpty(upsLicense)) {
                             lblStatus.Text = "UPS: " + pkg.Key + "..."; Application.DoEvents();
                             var res = await GetUpsTracking(pkg.Key);
                             ws.Cell(r, colStatus).Value = res.Item1;
@@ -307,9 +321,9 @@ namespace Ak0Analyzer
                                     cell.Value = "BRAK SKANU"; cell.Style.Fill.BackgroundColor = XLColor.Salmon;
                                     string currentLoc = pkg.Value[first].ToUpper();
                                     var key = new ScheduleKey { Loc = currentLoc, Day = d.Day };
-                                    if (staffSchedule.TryGetValue(key, out string p)) {
-                                        cell.CreateComment().AddText(p);
-                                        ws.Cell(r, colStaff).Value = p;
+                                    if (staffSchedule.TryGetValue(key, out string pStaff)) {
+                                        cell.CreateComment().AddText(pStaff);
+                                        ws.Cell(r, colStaff).Value = pStaff;
                                     }
                                 }
                             }
