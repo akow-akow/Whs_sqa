@@ -15,7 +15,7 @@ namespace Ak0Analyzer
     public class MainForm : Form
     {
         private CheckedListBox clbWarehouses;
-        private Button btnRun, btnSelectFolder, btnLoadSchedule, btnSettings, btnLoadReleased;
+        private Button btnRun, btnSelectFolder, btnLoadSchedule, btnSettings, btnLoadReleased, btnLoadPostcodes;
         private CheckBox chkEnableUPS, chkFilterI, chkFilterE;
         private Label lblStatus;
         private List<FileItem> sortedFiles;
@@ -23,6 +23,7 @@ namespace Ak0Analyzer
         private string selectedFolderPath = "";
         private Dictionary<ScheduleKey, string> staffSchedule = new Dictionary<ScheduleKey, string>();
         private HashSet<string> releasedPackages = new HashSet<string>();
+        private Dictionary<string, string> postcodeMap = new Dictionary<string, string>();
 
         private string upsLicense = "", upsUser = "", upsPass = "";
         private readonly string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ups_settings.ini");
@@ -38,11 +39,10 @@ namespace Ak0Analyzer
         {
             LoadSettings();
             this.Text = "AK0 Warehouse Scan Quality Analyzer";
-            this.Size = new System.Drawing.Size(550, 920);
+            this.Size = new System.Drawing.Size(550, 950);
             this.StartPosition = FormStartPosition.CenterScreen;
-            try { if (File.Exists("icon.ico")) this.Icon = new System.Drawing.Icon("icon.ico"); } catch { }
 
-            FlowLayoutPanel topPanel = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 280, Padding = new Padding(10) };
+            FlowLayoutPanel topPanel = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 330, Padding = new Padding(10) };
             
             btnSelectFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER AK0", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.LightSkyBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnSelectFolder.Click += (s, e) => SelectFolder();
@@ -50,8 +50,11 @@ namespace Ak0Analyzer
             btnLoadSchedule = new Button() { Text = "📅 2a. WCZYTAJ GRAFIK", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.NavajoWhite, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadSchedule.Click += (s, e) => LoadScheduleWindow();
 
-            btnLoadReleased = new Button() { Text = "🚚 2b. PRZESYŁKI ZWOLNIONE (DAT/TEKST)", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadReleased = new Button() { Text = "🚚 2b. PRZESYŁKI ZWOLNIONE (WIELE PLIKÓW DAT)", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadReleased.Click += (s, e) => LoadReleasedWindow();
+
+            btnLoadPostcodes = new Button() { Text = "🗺️ 2c. WCZYTAJ POSTCODE.XML", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.Thistle, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadPostcodes.Click += (s, e) => LoadPostcodeXml();
             
             btnSettings = new Button() { Text = "⚙️ USTAWIENIA UPS API", Size = new System.Drawing.Size(500, 40), BackColor = System.Drawing.Color.LightGray, FlatStyle = FlatStyle.Flat };
             btnSettings.Click += (s, e) => ShowSettingsWindow();
@@ -66,13 +69,14 @@ namespace Ak0Analyzer
             topPanel.Controls.Add(btnSelectFolder);
             topPanel.Controls.Add(btnLoadSchedule);
             topPanel.Controls.Add(btnLoadReleased);
+            topPanel.Controls.Add(btnLoadPostcodes);
             topPanel.Controls.Add(btnSettings);
             topPanel.Controls.Add(gpFilters);
 
             clbWarehouses = new CheckedListBox() { Dock = DockStyle.Fill, CheckOnClick = true, Font = new System.Drawing.Font("Segoe UI", 10) };
             
             Panel pnlOptions = new Panel() { Dock = DockStyle.Bottom, Height = 40, BackColor = System.Drawing.Color.WhiteSmoke };
-            chkEnableUPS = new CheckBox() { Text = "Automatyczna weryfikacja UPS API", AutoSize = true, Location = new System.Drawing.Point(10, 10), Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            chkEnableUPS = new CheckBox() { Text = "Automatyczna weryfikacja UPS API (Status + Kod)", AutoSize = true, Location = new System.Drawing.Point(10, 10), Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             pnlOptions.Controls.Add(chkEnableUPS);
 
             btnRun = new Button() { Text = "🚀 3. GENERUJ RAPORT", Dock = DockStyle.Bottom, Height = 70, BackColor = System.Drawing.Color.LightGreen, Enabled = false, Font = new System.Drawing.Font("Segoe UI", 11, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
@@ -88,20 +92,40 @@ namespace Ak0Analyzer
             this.Controls.Add(btnRun);
         }
 
+        private void LoadPostcodeXml()
+        {
+            using (OpenFileDialog ofd = new OpenFileDialog() { Filter = "Pliki XML (*.xml)|*.xml" })
+            {
+                if (ofd.ShowDialog() == DialogResult.OK)
+                {
+                    try {
+                        var doc = XDocument.Load(ofd.FileName);
+                        postcodeMap.Clear();
+                        foreach (var pc in doc.Descendants("postcode"))
+                        {
+                            string code = pc.Element("POSTAL_CODE")?.Value?.Trim();
+                            string slic = pc.Element("SLIC_NR")?.Value?.Trim();
+                            string loc = pc.Element("IN_BDG_LOC_NR")?.Value?.Trim();
+                            if (!string.IsNullOrEmpty(code)) postcodeMap[code] = $"{slic}-{loc}";
+                        }
+                        MessageBox.Show($"Wczytano {postcodeMap.Count} kodów pocztowych.");
+                    } catch (Exception ex) { MessageBox.Show("Błąd XML: " + ex.Message); }
+                }
+            }
+        }
+
         private void LoadReleasedWindow()
         {
             Form f = new Form() { Text = "Zarządzanie przesyłkami RELEASED", Size = new System.Drawing.Size(600, 500), StartPosition = FormStartPosition.CenterParent };
-            Label lblInfo = new Label() { Text = "Wklej raport LUB wybierz plik WHOFILEXPT.DAT:", Dock = DockStyle.Top, Height = 30, TextAlign = System.Drawing.ContentAlignment.BottomLeft, Padding = new Padding(5) };
+            Label lblInfo = new Label() { Text = "Możesz wybrać wiele plików .DAT lub wkleić tekst:", Dock = DockStyle.Top, Height = 30, TextAlign = System.Drawing.ContentAlignment.BottomLeft, Padding = new Padding(5) };
             TextBox txt = new TextBox() { Multiline = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical, Font = new System.Drawing.Font("Consolas", 9) };
             Panel pnlButtons = new Panel() { Dock = DockStyle.Bottom, Height = 100 };
-            Button btnFile = new Button() { Text = "📁 WYBIERZ PLIK WHOFILEXPT.DAT", Size = new System.Drawing.Size(570, 45), Location = new System.Drawing.Point(10, 5), BackColor = System.Drawing.Color.LightCyan, FlatStyle = FlatStyle.Flat };
-            Button btnProcess = new Button() { Text = "✅ PRZETWÓRZ WKLEJONY TEKST", Size = new System.Drawing.Size(570, 40), Location = new System.Drawing.Point(10, 55), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat };
-            
-            pnlButtons.Controls.Add(btnFile);
-            pnlButtons.Controls.Add(btnProcess);
+            Button btnFile = new Button() { Text = "📁 WYBIERZ PLIKI .DAT (WIELE)", Size = new System.Drawing.Size(570, 45), Location = new System.Drawing.Point(10, 5), BackColor = System.Drawing.Color.LightCyan, FlatStyle = FlatStyle.Flat };
+            Button btnProcess = new Button() { Text = "✅ DODAJ WKLEJONY TEKST", Size = new System.Drawing.Size(570, 40), Location = new System.Drawing.Point(10, 55), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat };
+            pnlButtons.Controls.Add(btnFile); pnlButtons.Controls.Add(btnProcess);
 
-            Action<string[]> processLines = (lines) => {
-                releasedPackages.Clear();
+            Action<string[]> appendLines = (lines) => {
+                int countBefore = releasedPackages.Count;
                 foreach (var line in lines) {
                     if (string.IsNullOrWhiteSpace(line)) continue;
                     string[] parts = line.Split(',');
@@ -110,17 +134,17 @@ namespace Ak0Analyzer
                         if (!string.IsNullOrEmpty(trackNum)) releasedPackages.Add(trackNum);
                     }
                 }
-                MessageBox.Show($"Wczytano {releasedPackages.Count} unikalnych numerów paczek.");
-                f.Close();
+                MessageBox.Show($"Dodano nowe numery. Łącznie w pamięci: {releasedPackages.Count} (Nowych: {releasedPackages.Count - countBefore})");
             };
 
             btnFile.Click += (s, e) => {
-                using (OpenFileDialog ofd = new OpenFileDialog() { Filter = "Pliki DAT (*.dat)|*.dat|Wszystkie pliki (*.*)|*.*" }) {
-                    if (ofd.ShowDialog() == DialogResult.OK) processLines(File.ReadAllLines(ofd.FileName));
+                using (OpenFileDialog ofd = new OpenFileDialog() { Filter = "Pliki DAT (*.dat)|*.dat", Multiselect = true }) {
+                    if (ofd.ShowDialog() == DialogResult.OK) {
+                        foreach (string file in ofd.FileNames) appendLines(File.ReadAllLines(file));
+                    }
                 }
             };
-            btnProcess.Click += (s, e) => processLines(txt.Lines);
-
+            btnProcess.Click += (s, e) => appendLines(txt.Lines);
             f.Controls.Add(txt); f.Controls.Add(lblInfo); f.Controls.Add(pnlButtons);
             f.ShowDialog();
         }
@@ -200,19 +224,12 @@ namespace Ak0Analyzer
             for (int r = 0; r < dgv.Rows.Count; r++) {
                 string cellA = dgv.Rows[r].Cells[0].Value?.ToString().Trim().ToLower() ?? "";
                 if (string.IsNullOrEmpty(cellA)) continue;
-
                 List<string> mappedLocs = new List<string>();
                 bool isSmalls = cellA.Contains("smalls");
-
                 if (cellA.Contains("mag")) {
                     string num = Regex.Match(cellA, @"\d+").Value;
-                    if (!string.IsNullOrEmpty(num)) {
-                        mappedLocs.Add("IWMAGAZYN" + num);
-                        mappedLocs.Add("EWMAGEXP" + num);
-                    }
-                } else if (isSmalls) {
-                    mappedLocs.Add("IWMSMALLS"); mappedLocs.Add("IWMSMALLS1"); mappedLocs.Add("IWMSMALLSXX");
-                }
+                    if (!string.IsNullOrEmpty(num)) { mappedLocs.Add("IWMAGAZYN" + num); mappedLocs.Add("EWMAGEXP" + num); }
+                } else if (isSmalls) { mappedLocs.Add("IWMSMALLS"); mappedLocs.Add("IWMSMALLS1"); mappedLocs.Add("IWMSMALLSXX"); }
 
                 if (mappedLocs.Count > 0) {
                     for (int c = 1; c < dgv.Columns.Count; c++) {
@@ -223,13 +240,10 @@ namespace Ak0Analyzer
                                 string p2 = dgv.Rows[r + 1].Cells[c].Value?.ToString().Trim() ?? "";
                                 if (!string.IsNullOrEmpty(p2)) p1 = string.IsNullOrEmpty(p1) ? p2 : p1 + " / " + p2;
                             }
-                            if (!string.IsNullOrEmpty(p1)) {
-                                foreach (var ml in mappedLocs) staffSchedule[new ScheduleKey { Loc = ml.ToUpper(), Day = day }] = p1;
-                            }
+                            if (!string.IsNullOrEmpty(p1)) foreach (var ml in mappedLocs) staffSchedule[new ScheduleKey { Loc = ml.ToUpper(), Day = day }] = p1;
                         }
                     }
-                    mappedCount++;
-                    if (isSmalls) r++; 
+                    mappedCount++; if (isSmalls) r++; 
                 }
             }
             MessageBox.Show($"Zmapowano grafik dla {mappedCount} pozycji.");
@@ -246,11 +260,9 @@ namespace Ak0Analyzer
             var selectedLocs = clbWarehouses.CheckedItems.Cast<string>().ToList();
             var data = new Dictionary<string, SortedDictionary<DateTime, string>>();
             var pkgStartedInSelected = new HashSet<string>();
-            
             var dates = sortedFiles.Select(x => x.Date).ToList();
             DateTime lastDay = dates.Max();
 
-            // KROK 1: Identyfikacja paczek, które były w zaznaczonych magazynach
             foreach (var f in sortedFiles) {
                 using (var wb = new XLWorkbook(f.Path)) {
                     var ws = wb.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("AK0")) ?? wb.Worksheets.FirstOrDefault();
@@ -263,7 +275,6 @@ namespace Ak0Analyzer
                 }
             }
 
-            // KROK 2: Budowanie historii dla tych paczek
             foreach (var f in sortedFiles) {
                 using (var wb = new XLWorkbook(f.Path)) {
                     var ws = wb.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("AK0")) ?? wb.Worksheets.FirstOrDefault();
@@ -284,18 +295,15 @@ namespace Ak0Analyzer
                 ws.Cell(1, 1).Value = "Package ID";
                 for (int i = 0; i < dates.Count; i++) ws.Cell(1, i + 2).Value = dates[i].ToShortDateString();
                 
-                int colStatus = dates.Count + 2;
-                int colCity = dates.Count + 3;
-                int colStaff = dates.Count + 4;
-                ws.Cell(1, colStatus).Value = "Status UPS";
-                ws.Cell(1, colCity).Value = "Lokalizacja UPS";
+                int colStatus = dates.Count + 2, colCity = dates.Count + 3, colZip = dates.Count + 4, colHub = dates.Count + 5, colStaff = dates.Count + 6;
+                ws.Cell(1, colStatus).Value = "Status UPS"; ws.Cell(1, colCity).Value = "Lokalizacja UPS";
+                ws.Cell(1, colZip).Value = "Kod Pocztowy (UPS)"; ws.Cell(1, colHub).Value = "Oddział (Mapa)";
                 ws.Cell(1, colStaff).Value = "Osoba Odpowiedzialna";
 
                 int r = 2;
                 foreach (var pkg in data) {
                     DateTime first = pkg.Value.Keys.Min();
                     bool isMissingTodayInSelected = !pkg.Value.ContainsKey(lastDay) || !selectedLocs.Contains(pkg.Value[lastDay]);
-                    
                     bool hasGaps = false;
                     for(DateTime d = first; d <= lastDay; d = d.AddDays(1)) {
                         var targetDate = dates.FirstOrDefault(dt => dt.Date == d.Date);
@@ -304,9 +312,7 @@ namespace Ak0Analyzer
 
                     if (isMissingTodayInSelected || hasGaps) {
                         ws.Cell(r, 1).Value = pkg.Key;
-                        bool isActuallyOutside = false;
-                        bool isReleased = releasedPackages.Contains(pkg.Key);
-                        bool isOutForDelivery = false; // Nowy warunek z API
+                        bool isActuallyOutside = false, isReleased = releasedPackages.Contains(pkg.Key), isOutForDelivery = false;
                         bool existsAnywhereToday = pkg.Value.ContainsKey(lastDay);
 
                         if (!existsAnywhereToday && chkEnableUPS.Checked && !string.IsNullOrEmpty(upsLicense)) {
@@ -314,14 +320,13 @@ namespace Ak0Analyzer
                             var res = await GetUpsTracking(pkg.Key);
                             ws.Cell(r, colStatus).Value = res.Item1;
                             ws.Cell(r, colCity).Value = res.Item2;
+                            ws.Cell(r, colZip).Value = res.Item3;
 
-                            // LOGIKA: Jeśli "Out For Delivery", traktujemy jak Released (nawet w Strykowie/Dobrej)
-                            if (res.Item1.ToUpper().Contains("OUT FOR DELIVERY")) {
-                                isOutForDelivery = true;
-                            }
-                            else if (!string.IsNullOrEmpty(res.Item2) && !res.Item2.ToUpper().Contains("STRYKOW") && !res.Item2.ToUpper().Contains("DOBRA")) {
-                                isActuallyOutside = true;
-                            }
+                            if (!string.IsNullOrEmpty(res.Item3) && postcodeMap.TryGetValue(res.Item3, out string hub)) 
+                                ws.Cell(r, colHub).Value = hub;
+
+                            if (res.Item1.ToUpper().Contains("OUT FOR DELIVERY")) isOutForDelivery = true;
+                            else if (!string.IsNullOrEmpty(res.Item2) && !res.Item2.ToUpper().Contains("STRYKOW") && !res.Item2.ToUpper().Contains("DOBRA")) isActuallyOutside = true;
                         }
 
                         for (int i = 0; i < dates.Count; i++) {
@@ -333,8 +338,6 @@ namespace Ak0Analyzer
                             }
                             else if (d > first) {
                                 var cell = ws.Cell(r, i + 2);
-                                
-                                // Oznaczanie jako Released / Out For Delivery / Doręczona
                                 if (d == lastDay && (isReleased || isOutForDelivery)) {
                                     cell.Value = isOutForDelivery ? "OUT FOR DELIVERY" : "RELEASED";
                                     cell.Style.Fill.BackgroundColor = XLColor.LightSkyBlue;
@@ -346,10 +349,7 @@ namespace Ak0Analyzer
                                     cell.Value = "BRAK SKANU"; cell.Style.Fill.BackgroundColor = XLColor.Salmon;
                                     string lastKnownLoc = pkg.Value.Where(kv => kv.Key < d).OrderByDescending(kv => kv.Key).FirstOrDefault().Value ?? "";
                                     var key = new ScheduleKey { Loc = lastKnownLoc.ToUpper(), Day = d.Day };
-                                    if (staffSchedule.TryGetValue(key, out string pStaff)) {
-                                        cell.CreateComment().AddText(pStaff);
-                                        ws.Cell(r, colStaff).Value = pStaff;
-                                    }
+                                    if (staffSchedule.TryGetValue(key, out string pStaff)) { cell.CreateComment().AddText(pStaff); ws.Cell(r, colStaff).Value = pStaff; }
                                 }
                             }
                         }
@@ -361,7 +361,7 @@ namespace Ak0Analyzer
             }
         }
 
-        private async System.Threading.Tasks.Task<Tuple<string, string>> GetUpsTracking(string trackNum) {
+        private async System.Threading.Tasks.Task<Tuple<string, string, string>> GetUpsTracking(string trackNum) {
             try {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
                 string xml = "<?xml version=\"1.0\"?><AccessRequest><AccessLicenseNumber>" + upsLicense + "</AccessLicenseNumber><UserId>" + upsUser + "</UserId><Password>" + upsPass + "</Password></AccessRequest>" +
@@ -373,12 +373,14 @@ namespace Ak0Analyzer
                     if (pkg != null) {
                         var act = pkg.Descendants("Activity").FirstOrDefault();
                         string st = act?.Descendants("Status")?.FirstOrDefault()?.Descendants("StatusType")?.FirstOrDefault()?.Descendants("Description")?.FirstOrDefault()?.Value ?? "Brak";
-                        string ct = act?.Descendants("ActivityLocation")?.FirstOrDefault()?.Descendants("Address")?.FirstOrDefault()?.Descendants("City")?.FirstOrDefault()?.Value ?? "Nieznane";
-                        return new Tuple<string, string>(st, ct);
+                        var loc = act?.Descendants("ActivityLocation")?.FirstOrDefault();
+                        string ct = loc?.Descendants("Address")?.FirstOrDefault()?.Descendants("City")?.FirstOrDefault()?.Value ?? "Nieznane";
+                        string zp = loc?.Descendants("Address")?.FirstOrDefault()?.Descendants("PostalCode")?.FirstOrDefault()?.Value ?? "";
+                        return new Tuple<string, string, string>(st, ct, zp);
                     }
                 }
             } catch { }
-            return new Tuple<string, string>("Błąd API", "---");
+            return new Tuple<string, string, string>("Błąd API", "---", "");
         }
 
         private void LoadSettings() { if (File.Exists(settingsPath)) { var lines = File.ReadAllLines(settingsPath); if (lines.Length >= 3) { upsLicense = lines[0]; upsUser = lines[1]; upsPass = lines[2]; } } }
