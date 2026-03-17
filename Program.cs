@@ -27,6 +27,7 @@ namespace Ak0Analyzer
 
         private string upsLicense = "", upsUser = "", upsPass = "";
         private readonly string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ups_settings.ini");
+        private readonly string defaultPostcodePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "postcode.xml");
 
         struct FileItem { public string Path; public DateTime Date; }
         struct ScheduleKey { 
@@ -39,7 +40,7 @@ namespace Ak0Analyzer
         {
             LoadSettings();
             this.Text = "AK0 Warehouse Scan Quality Analyzer";
-            this.Size = new System.Drawing.Size(550, 950);
+            this.Size = new System.Drawing.Size(550, 910); // Zmniejszone o 40px
             this.StartPosition = FormStartPosition.CenterScreen;
 
             FlowLayoutPanel topPanel = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 330, Padding = new Padding(10) };
@@ -53,8 +54,8 @@ namespace Ak0Analyzer
             btnLoadReleased = new Button() { Text = "🚚 2b. PRZESYŁKI ZWOLNIONE (WIELE PLIKÓW DAT)", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadReleased.Click += (s, e) => LoadReleasedWindow();
 
-            btnLoadPostcodes = new Button() { Text = "🗺️ 2c. WCZYTAJ POSTCODE.XML", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.Thistle, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
-            btnLoadPostcodes.Click += (s, e) => LoadPostcodeXml();
+            btnLoadPostcodes = new Button() { Text = "🗺️ 2c. WCZYTAJ POSTCODE.XML (RĘCZNIE)", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.Thistle, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadPostcodes.Click += (s, e) => LoadPostcodeXml(null);
             
             btnSettings = new Button() { Text = "⚙️ USTAWIENIA UPS API", Size = new System.Drawing.Size(500, 40), BackColor = System.Drawing.Color.LightGray, FlatStyle = FlatStyle.Flat };
             btnSettings.Click += (s, e) => ShowSettingsWindow();
@@ -90,27 +91,39 @@ namespace Ak0Analyzer
             this.Controls.Add(pnlOptions);
             this.Controls.Add(lblStatus);
             this.Controls.Add(btnRun);
+
+            // Automatyczne wczytanie kodów przy starcie
+            AutoLoadPostcode();
         }
 
-        private void LoadPostcodeXml()
+        private void AutoLoadPostcode() {
+            if (File.Exists(defaultPostcodePath)) {
+                LoadPostcodeXml(defaultPostcodePath);
+            }
+        }
+
+        private void LoadPostcodeXml(string path)
         {
-            using (OpenFileDialog ofd = new OpenFileDialog() { Filter = "Pliki XML (*.xml)|*.xml" })
-            {
-                if (ofd.ShowDialog() == DialogResult.OK)
-                {
-                    try {
-                        var doc = XDocument.Load(ofd.FileName);
-                        postcodeMap.Clear();
-                        foreach (var pc in doc.Descendants("postcode"))
-                        {
-                            string code = pc.Element("POSTAL_CODE")?.Value?.Trim();
-                            string slic = pc.Element("SLIC_NR")?.Value?.Trim();
-                            string loc = pc.Element("IN_BDG_LOC_NR")?.Value?.Trim();
-                            if (!string.IsNullOrEmpty(code)) postcodeMap[code] = $"{slic}-{loc}";
-                        }
-                        MessageBox.Show($"Wczytano {postcodeMap.Count} kodów pocztowych.");
-                    } catch (Exception ex) { MessageBox.Show("Błąd XML: " + ex.Message); }
+            string fileToLoad = path;
+            if (string.IsNullOrEmpty(fileToLoad)) {
+                using (OpenFileDialog ofd = new OpenFileDialog() { Filter = "Pliki XML (*.xml)|*.xml" }) {
+                    if (ofd.ShowDialog() == DialogResult.OK) fileToLoad = ofd.FileName;
                 }
+            }
+
+            if (!string.IsNullOrEmpty(fileToLoad) && File.Exists(fileToLoad)) {
+                try {
+                    var doc = XDocument.Load(fileToLoad);
+                    postcodeMap.Clear();
+                    foreach (var pc in doc.Descendants("postcode")) {
+                        string code = pc.Element("POSTAL_CODE")?.Value?.Trim();
+                        string slic = pc.Element("SLIC_NR")?.Value?.Trim();
+                        string loc = pc.Element("IN_BDG_LOC_NR")?.Value?.Trim();
+                        if (!string.IsNullOrEmpty(code)) postcodeMap[code] = $"{slic}-{loc}";
+                    }
+                    if (path == null) MessageBox.Show($"Wczytano {postcodeMap.Count} kodów pocztowych.");
+                    else lblStatus.Text = $"Wczytano automatycznie {postcodeMap.Count} kodów pocztowych.";
+                } catch (Exception ex) { if (path == null) MessageBox.Show("Błąd XML: " + ex.Message); }
             }
         }
 
