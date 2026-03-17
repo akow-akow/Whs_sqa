@@ -211,7 +211,7 @@ namespace Ak0Analyzer
         private void PasteToDgv(DataGridView dgv) {
             string t = Clipboard.GetText(); if (string.IsNullOrEmpty(t)) return;
             dgv.Rows.Clear(); dgv.Columns.Clear();
-            string[] lines = t.Split(new[] { "\r\n", "\r", "\n" }, System.Drawing.Options.None);
+            string[] lines = t.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
             if (lines.Length == 0) return;
             string[] headers = lines[0].Split('\t');
             foreach (var h in headers) dgv.Columns.Add(h, h);
@@ -319,7 +319,6 @@ namespace Ak0Analyzer
                             lblStatus.Text = "UPS: " + pkg.Key + "..."; Application.DoEvents();
                             var res = await GetUpsTracking(pkg.Key);
                             
-                            // Wpisujemy dane z API do dedykowanych kolumn (Zawsze)
                             ws.Cell(r, colStatus).Value = res.Item1;
                             ws.Cell(r, colCity).Value = res.Item2;
                             ws.Cell(r, colZip).Value = res.Item3;
@@ -374,11 +373,9 @@ namespace Ak0Analyzer
                     
                     var shipment = doc.Descendants("Shipment").FirstOrDefault();
                     if (shipment != null) {
-                        // Pobranie kodu pocztowego z sekcji ShipTo (odbiorca)
                         var shipTo = shipment.Element("ShipTo");
                         string zp = shipTo?.Element("Address")?.Element("PostalCode")?.Value ?? "";
 
-                        // Pobranie ostatniej aktywności
                         var pkg = shipment.Element("Package");
                         var act = pkg?.Descendants("Activity").FirstOrDefault();
                         
