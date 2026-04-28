@@ -241,7 +241,7 @@ namespace Ak0Analyzer
                 bool isSmalls = cellA.Contains("smalls");
                 if (cellA.Contains("mag")) {
                     string num = Regex.Match(cellA, @"\d+").Value;
-                    if (!string.IsNullOrEmpty(num)) { mappedLocs.Add("IWMAGAZYN" + num); mappedLocs.Add("EWMAGEXP" + num); }
+                    if (!string.IsNullOrEmpty(num)) { mappedLocs.Add("IWMAG" + num); mappedLocs.Add("EWMAGEXP" + num); }
                 } else if (isSmalls) { mappedLocs.Add("IWMSMALLS"); mappedLocs.Add("IWMSMALLS1"); mappedLocs.Add("IWMSMALLSXX"); }
 
                 if (mappedLocs.Count > 0) {
