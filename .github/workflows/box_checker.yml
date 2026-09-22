@@ -1,6 +1,7 @@
 name: Build Box Checker version
 
 on:
+  push:
     branches: [ "box_checker" ]
   workflow_dispatch:
 
