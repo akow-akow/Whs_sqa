@@ -1,0 +1,29 @@
+name: Build Box Checker version
+
+on:
+    branches: [ "box_checker" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x' # SDK potrzebne do kompilacji
+
+    - name: Restore NuGet Packages
+      run: dotnet restore Ak0Analyzer.csproj
+
+    - name: Build App
+      run: dotnet build Ak0Analyzer.csproj -c Release
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AK0-Analyzer-EXE
+        path: bin/Release/net48/
