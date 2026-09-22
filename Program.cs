@@ -14,6 +14,12 @@ namespace Ak0Analyzer
 {
     public class MainForm : Form
     {
+        // Kontrolka zakładek dzieląca aplikację na dwa tryby
+        private TabControl tabControlMain;
+        private TabPage tabAk0Analyzer;
+        private TabPage tabUnloadAnalyzer;
+
+        // Kontrolki - Zakładka 1: AK0 Analyzer (Oryginał)
         private CheckedListBox clbWarehouses;
         private Button btnRun, btnSelectFolder, btnLoadSchedule, btnSettings, btnLoadReleased, btnLoadPostcodes;
         private CheckBox chkEnableUPS, chkFilterI, chkFilterE;
@@ -25,7 +31,14 @@ namespace Ak0Analyzer
         private HashSet<string> releasedPackages = new HashSet<string>();
         private Dictionary<string, string> postcodeMap = new Dictionary<string, string>();
 
-        private string upsLicense = "", upsUser = "", upsPass = "";
+        // Kontrolki - Zakładka 2: Rozładunki / Boxy UPS (Nowość)
+        private Button btnSelectUnloadFolder, btnSelectAk0UnloadFolder, btnRunUnload;
+        private Label lblUnloadStatus, lblUnloadFolderPath, lblAk0UnloadFolderPath;
+        private string unloadFolderPath = "";
+        private string ak0UnloadFolderPath = "";
+
+        // Ustawienia UPS (w tym konfigurowalny URL API)
+        private string upsLicense = "", upsUser = "", upsPass = "", upsApiUrl = "https://www.ups.com/ups.app/xml/Track";
         private readonly string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ups_settings.ini");
         private readonly string defaultPostcodePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "postcode.xml");
 
@@ -39,30 +52,50 @@ namespace Ak0Analyzer
         public MainForm()
         {
             LoadSettings();
-            this.Text = "AK0 Warehouse Scan Quality Analyzer";
-            this.Size = new System.Drawing.Size(550, 910); // Zmniejszone o 40px
+            this.Text = "AK0 Warehouse & Unload Quality Analyzer";
+            this.Size = new System.Drawing.Size(600, 950);
             this.StartPosition = FormStartPosition.CenterScreen;
 
+            // Główny TabControl
+            tabControlMain = new TabControl() { Dock = DockStyle.Fill };
+            
+            tabAk0Analyzer = new TabPage("Analiza AK0 (Oryginał)");
+            tabUnloadAnalyzer = new TabPage("Rozładunki / Boxy UPS (Nowość)");
+
+            BuildAk0Tab();
+            BuildUnloadTab();
+
+            tabControlMain.TabPages.Add(tabAk0Analyzer);
+            tabControlMain.TabPages.Add(tabUnloadAnalyzer);
+
+            this.Controls.Add(tabControlMain);
+
+            // Automatyczne wczytanie kodów przy starcie
+            AutoLoadPostcode();
+        }
+
+        private void BuildAk0Tab()
+        {
             FlowLayoutPanel topPanel = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 330, Padding = new Padding(10) };
             
-            btnSelectFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER AK0", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.LightSkyBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnSelectFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER AK0", Size = new System.Drawing.Size(265, 60), BackColor = System.Drawing.Color.LightSkyBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnSelectFolder.Click += (s, e) => SelectFolder();
             
-            btnLoadSchedule = new Button() { Text = "📅 2a. WCZYTAJ GRAFIK", Size = new System.Drawing.Size(245, 60), BackColor = System.Drawing.Color.NavajoWhite, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadSchedule = new Button() { Text = "📅 2a. WCZYTAJ GRAFIK", Size = new System.Drawing.Size(265, 60), BackColor = System.Drawing.Color.NavajoWhite, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadSchedule.Click += (s, e) => LoadScheduleWindow();
 
-            btnLoadReleased = new Button() { Text = "🚚 2b. PRZESYŁKI ZWOLNIONE (WIELE PLIKÓW DAT)", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadReleased = new Button() { Text = "🚚 2b. PRZESYŁKI ZWOLNIONE (WIELE PLIKÓW DAT)", Size = new System.Drawing.Size(540, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadReleased.Click += (s, e) => LoadReleasedWindow();
 
-            btnLoadPostcodes = new Button() { Text = "🗺️ 2c. WCZYTAJ POSTCODE.XML (RĘCZNIE)", Size = new System.Drawing.Size(500, 45), BackColor = System.Drawing.Color.Thistle, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadPostcodes = new Button() { Text = "🗺️ 2c. WCZYTAJ POSTCODE.XML (RĘCZNIE)", Size = new System.Drawing.Size(540, 45), BackColor = System.Drawing.Color.Thistle, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadPostcodes.Click += (s, e) => LoadPostcodeXml(null);
             
-            btnSettings = new Button() { Text = "⚙️ USTAWIENIA UPS API", Size = new System.Drawing.Size(500, 40), BackColor = System.Drawing.Color.LightGray, FlatStyle = FlatStyle.Flat };
+            btnSettings = new Button() { Text = "⚙️ USTAWIENIA UPS API & URL", Size = new System.Drawing.Size(540, 40), BackColor = System.Drawing.Color.LightGray, FlatStyle = FlatStyle.Flat };
             btnSettings.Click += (s, e) => ShowSettingsWindow();
 
-            GroupBox gpFilters = new GroupBox() { Text = "Filtry magazynów (Początek nazwy)", Size = new System.Drawing.Size(500, 50) };
+            GroupBox gpFilters = new GroupBox() { Text = "Filtry magazynów (Początek nazwy)", Size = new System.Drawing.Size(540, 50) };
             chkFilterI = new CheckBox() { Text = "Import (I...)", Checked = true, AutoSize = true, Location = new System.Drawing.Point(10, 20) };
-            chkFilterE = new CheckBox() { Text = "Export (E...)", Checked = true, AutoSize = true, Location = new System.Drawing.Point(150, 20) };
+            chkFilterE = new CheckBox() { Text = "Export (E...)", Checked = true, AutoSize = true, Location = new System.Drawing.Point(170, 20) };
             chkFilterI.CheckedChanged += (s, e) => ApplyLocFilter();
             chkFilterE.CheckedChanged += (s, e) => ApplyLocFilter();
             gpFilters.Controls.Add(chkFilterI); gpFilters.Controls.Add(chkFilterE);
@@ -85,15 +118,277 @@ namespace Ak0Analyzer
 
             lblStatus = new Label() { Text = "Gotowy", Dock = DockStyle.Bottom, Height = 40, TextAlign = System.Drawing.ContentAlignment.MiddleCenter, BackColor = System.Drawing.Color.WhiteSmoke, BorderStyle = BorderStyle.FixedSingle };
 
-            this.Controls.Add(clbWarehouses);
-            this.Controls.Add(new Label() { Text = " Magazyny do analizy:", Dock = DockStyle.Top, Height = 25, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) });
-            this.Controls.Add(topPanel);
-            this.Controls.Add(pnlOptions);
-            this.Controls.Add(lblStatus);
-            this.Controls.Add(btnRun);
+            tabAk0Analyzer.Controls.Add(clbWarehouses);
+            tabAk0Analyzer.Controls.Add(new Label() { Text = " Magazyny do analizy:", Dock = DockStyle.Top, Height = 25, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) });
+            tabAk0Analyzer.Controls.Add(topPanel);
+            tabAk0Analyzer.Controls.Add(pnlOptions);
+            tabAk0Analyzer.Controls.Add(lblStatus);
+            tabAk0Analyzer.Controls.Add(btnRun);
+        }
 
-            // Automatyczne wczytanie kodów przy starcie
-            AutoLoadPostcode();
+        private void BuildUnloadTab()
+        {
+            Panel pnlUnloadTop = new Panel() { Dock = DockStyle.Top, Height = 320, Padding = new Padding(15) };
+
+            btnSelectUnloadFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER Z PLIKAMI ROZŁADUNKOWYMI", Size = new System.Drawing.Size(530, 50), Location = new System.Drawing.Point(15, 15), BackColor = System.Drawing.Color.Moccasin, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnSelectUnloadFolder.Click += (s, e) => SelectUnloadFolder();
+
+            lblUnloadFolderPath = new Label() { Text = "Brak wybranego folderu z plikami rozładunkowymi.", Size = new System.Drawing.Size(530, 40), Location = new System.Drawing.Point(15, 75), TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+
+            btnSelectAk0UnloadFolder = new Button() { Text = "📁 2. WYBIERZ FOLDER Z PLIKAMI AK0 (DO WERYFIKACJI)", Size = new System.Drawing.Size(530, 50), Location = new System.Drawing.Point(15, 125), BackColor = System.Drawing.Color.LightSkyBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnSelectAk0UnloadFolder.Click += (s, e) => SelectAk0UnloadFolder();
+
+            lblAk0UnloadFolderPath = new Label() { Text = "Brak wybranego folderu z plikami AK0.", Size = new System.Drawing.Size(530, 40), Location = new System.Drawing.Point(15, 185), TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+
+            btnRunUnload = new Button() { Text = "🚀 3. GENERUJ RAPORT ROZŁADUNKÓW / BOXÓW", Size = new System.Drawing.Size(530, 60), Location = new System.Drawing.Point(15, 235), BackColor = System.Drawing.Color.LightGreen, Enabled = false, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
+            btnRunUnload.Click += BtnRunUnload_Click;
+
+            pnlUnloadTop.Controls.Add(btnSelectUnloadFolder);
+            pnlUnloadTop.Controls.Add(lblUnloadFolderPath);
+            pnlUnloadTop.Controls.Add(btnSelectAk0UnloadFolder);
+            pnlUnloadTop.Controls.Add(lblAk0UnloadFolderPath);
+            pnlUnloadTop.Controls.Add(btnRunUnload);
+
+            lblUnloadStatus = new Label() { Text = "Gotowy do analizy rozładunków.", Dock = DockStyle.Bottom, Height = 45, TextAlign = System.Drawing.ContentAlignment.MiddleCenter, BackColor = System.Drawing.Color.WhiteSmoke, BorderStyle = BorderStyle.FixedSingle };
+
+            tabUnloadAnalyzer.Controls.Add(pnlUnloadTop);
+            tabUnloadAnalyzer.Controls.Add(lblUnloadStatus);
+        }
+
+        private void SelectUnloadFolder()
+        {
+            using (FolderBrowserDialog fbd = new FolderBrowserDialog()) {
+                if (fbd.ShowDialog() == DialogResult.OK) {
+                    unloadFolderPath = fbd.SelectedPath;
+                    lblUnloadFolderPath.Text = "Folder rozładunków: " + unloadFolderPath;
+                    CheckUnloadReady();
+                }
+            }
+        }
+
+        private void SelectAk0UnloadFolder()
+        {
+            using (FolderBrowserDialog fbd = new FolderBrowserDialog()) {
+                if (fbd.ShowDialog() == DialogResult.OK) {
+                    ak0UnloadFolderPath = fbd.SelectedPath;
+                    lblAk0UnloadFolderPath.Text = "Folder AK0: " + ak0UnloadFolderPath;
+                    CheckUnloadReady();
+                }
+            }
+        }
+
+        private void CheckUnloadReady()
+        {
+            if (!string.IsNullOrEmpty(unloadFolderPath) && !string.IsNullOrEmpty(ak0UnloadFolderPath)) {
+                btnRunUnload.Enabled = true;
+            }
+        }
+
+        private async void BtnRunUnload_Click(object sender, EventArgs e)
+        {
+            btnRunUnload.Enabled = false;
+            try {
+                lblUnloadStatus.Text = "Trwa przetwarzanie rozładunków i weryfikacja UPS API...";
+                Application.DoEvents();
+                await GenerateUnloadReportAsync();
+                MessageBox.Show("Raport rozładunków został wygenerowany pomyślnie!");
+            } catch (Exception ex) {
+                MessageBox.Show("Błąd podczas generowania raportu rozładunków: " + ex.Message);
+            } finally {
+                btnRunUnload.Enabled = true;
+                lblUnloadStatus.Text = "Gotowy.";
+            }
+        }
+
+        private async System.Threading.Tasks.Task GenerateUnloadReportAsync()
+        {
+            // 1. Wczytanie plików AK0 z wybranego folderu dla rozładunków
+            var ak0Files = Directory.GetFiles(ak0UnloadFolderPath, "*.xlsx");
+            var ak0FileItems = new List<FileItem>();
+            foreach (var f in ak0Files) {
+                string fn = Path.GetFileName(f);
+                var m = Regex.Match(fn, @"(\d{2}\.\d{2}\.\d{4})");
+                if (m.Success && fn.ToUpper().StartsWith("AK0")) {
+                    if (DateTime.TryParseExact(m.Value, "dd.MM.yyyy", null, System.Globalization.DateTimeStyles.None, out DateTime dt))
+                        ak0FileItems.Add(new FileItem { Path = f, Date = dt });
+                }
+            }
+            ak0FileItems = ak0FileItems.OrderBy(x => x.Date).ToList();
+            if (ak0FileItems.Count == 0) {
+                throw new Exception("Nie znaleziono prawidłowych plików AK0 w wybranym folderze!");
+            }
+
+            // Mapowanie: Paczka -> Słownik (Data -> Lokalizacja w AK0)
+            Dictionary<string, SortedDictionary<DateTime, string>> packageAk0History = new Dictionary<string, SortedDictionary<DateTime, string>>();
+            foreach (var f in ak0FileItems) {
+                using (var wb = new XLWorkbook(f.Path)) {
+                    var ws = wb.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("AK0")) ?? wb.Worksheets.FirstOrDefault();
+                    var range = ws?.RangeUsed(); if (range == null) continue;
+                    foreach (var row in range.RowsUsed().Skip(1)) {
+                        string l = row.Cell(1).GetString().Trim();
+                        string p = row.Cell(2).GetString().Trim();
+                        if (!string.IsNullOrEmpty(p)) {
+                            if (!packageAk0History.ContainsKey(p)) packageAk0History[p] = new SortedDictionary<DateTime, string>();
+                            packageAk0History[p][f.Date] = l;
+                        }
+                    }
+                }
+            }
+
+            // 2. Wczytanie plików rozładunkowych z hubu
+            // Nazwy np: "Brexit Import rozładunek z dnia 2026-09-21 UPST95421E UPST6182E"
+            var unloadFiles = Directory.GetFiles(unloadFolderPath, "*.xlsx");
+            // Słownik: Box (np. UPST95421E) -> Lista numerów paczek
+            Dictionary<string, List<string>> boxPackagesMap = new Dictionary<string, List<string>>();
+
+            foreach (var file in unloadFiles) {
+                string fileName = Path.GetFileNameWithoutExtension(file);
+                // Wyciągnij wszystkie tokeny zaczynające się od UPST lub pasujące do wzorca boxa
+                var matches = Regex.Matches(fileName, @"(UPST\w+)", RegexOptions.IgnoreCase);
+                List<string> boxesInFile = new List<string>();
+                foreach (Match m in matches) {
+                    boxesInFile.Add(m.Value.ToUpper());
+                }
+
+                if (boxesInFile.Count == 0) continue;
+
+                using (var wb = new XLWorkbook(file)) {
+                    // Każdy box w pliku ma swój skoroszyt (zakładkę)
+                    foreach (var ws in wb.Worksheets) {
+                        string wsNameTrim = ws.Name.Trim().ToUpper();
+                        // Dopasuj arkusz do odpowiedniego boxa z nazwy pliku lub nazwy arkusza
+                        string matchedBox = boxesInFile.FirstOrDefault(b => wsNameTrim.Contains(b)) ?? boxesInFile.First();
+
+                        if (!boxPackagesMap.ContainsKey(matchedBox)) boxPackagesMap[matchedBox] = new List<string>();
+
+                        var range = ws.RangeUsed();
+                        if (range == null) continue;
+
+                        // Pierwszy wiersz to nagłówek, więc pomijamy. Szukamy kolumny z paczkami (zakładamy kolumnę 1 lub 2, albo przeszukujemy wiersze)
+                        foreach (var row in range.RowsUsed().Skip(1)) {
+                            // Szukamy w komórkach numeru paczki (zazwyczaj pierwsza lub druga kolumna)
+                            string pkg = row.Cell(1).GetString().Trim();
+                            if (string.IsNullOrEmpty(pkg) || pkg.Length < 5) {
+                                pkg = row.Cell(2).GetString().Trim();
+                            }
+                            if (!string.IsNullOrEmpty(pkg) && !boxPackagesMap[matchedBox].Contains(pkg)) {
+                                boxPackagesMap[matchedBox].Add(pkg);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (boxPackagesMap.Count == 0) {
+                throw new Exception("Nie znaleziono żadnych boxów ani paczek w plikach rozładunkowych!");
+            }
+
+            DateTime today = DateTime.Now.Date;
+
+            // 3. Generowanie pliku Excel z wynikami
+            using (var report = new XLWorkbook()) {
+                var wsReport = report.Worksheets.Add("Rozładunki i Boxy");
+                int colIndex = 1;
+
+                foreach (var boxEntry in boxPackagesMap) {
+                    string boxName = boxEntry.Key;
+                    var pkgs = boxEntry.Value;
+
+                    wsReport.Cell(1, colIndex).Value = $"Box: {boxName} ({pkgs.Count})";
+                    wsReport.Cell(1, colIndex).Style.Font.Bold = true;
+                    wsReport.Cell(1, colIndex).Style.Fill.BackgroundColor = XLColor.LightGray;
+
+                    int rowIndex = 2;
+                    foreach (string pkg in pkgs) {
+                        var cell = wsReport.Cell(rowIndex, colIndex);
+                        cell.Value = pkg;
+
+                        // Analiza obecności paczki w AK0
+                        bool foundInAk0 = packageAk0History.ContainsKey(pkg);
+                        DateTime lastSeenDate = default(DateTime);
+                        string lastLoc = "";
+
+                        if (foundInAk0) {
+                            var history = packageAk0History[pkg];
+                            lastSeenDate = history.Keys.Max();
+                            lastLoc = history[lastSeenDate];
+                        }
+
+                        // Warunek 1: Jeśli paczka MIAŁA w którymś AK0 lokalizację "EWMAGCFRTS" po czym jej nie ma -> zwrotka do GB (OK)
+                        bool returnedToGb = false;
+                        if (foundInAk0) {
+                            foreach (var kv in packageAk0History[pkg]) {
+                                if (kv.Value.Equals("EWMAGCFRTS", StringComparison.OrdinalIgnoreCase)) {
+                                    // Sprawdź czy w późniejszych dniach zniknęła lub jest oznaczona
+                                    returnedToGb = true; 
+                                }
+                            }
+                            // Jeśli ostatnia znana lokalizacja to EWMAGCFRTS lub wyszła z niej
+                            if (lastLoc.Equals("EWMAGCFRTS", StringComparison.OrdinalIgnoreCase)) returnedToGb = true;
+                        }
+
+                        // Warunek 2: Sprawdzenie czy paczka jest obecna dzisiaj lub w ciągu ostatnich 3 dni w AK0
+                        bool recentInAk0 = foundInAk0 && (today - lastSeenDate).TotalDays <= 3;
+
+                        if (recentInAk0 || returnedToGb) {
+                            // Jest OK - brak wyróżnienia czerwonym
+                            if (returnedToGb) {
+                                cell.CreateComment().AddText($"Zwrot do GB (EWMAGCFRTS) - Ostatnio: {lastSeenDate:dd-MM-yyyy}");
+                            } else {
+                                cell.CreateComment().AddText($"Obecna w AK0: {lastLoc} ({lastSeenDate:dd-MM-yyyy})");
+                            }
+                        } else {
+                            // Paczki nie ma w AK0 dłużej niż 3 dni -> Sprawdzamy makro doręczeń / UPS API
+                            bool isOkByUps = false;
+                            string upsStatusInfo = "Brak w AK0 > 3 dni";
+                            string upsDateLoc = "";
+
+                            if (!string.IsNullOrEmpty(upsLicense)) {
+                                lblUnloadStatus.Text = $"Weryfikacja UPS API dla paczki: {pkg}...";
+                                Application.DoEvents();
+                                var upsRes = await GetUpsTracking(pkg);
+                                string statusDesc = upsRes.Item1.ToUpper();
+                                string city = upsRes.Item2;
+
+                                // jeśli paka ma skan gdzie indziej niż "Dobra Strykow" ale nadal w Polsce to ok
+                                // jeśli paczka jest doręczona to też ok
+                                bool isDelivered = statusDesc.Contains("DELIVERED") || statusDesc.Contains("DORĘCZONA");
+                                bool isOutsideStrykowPoland = !string.IsNullOrEmpty(city) && 
+                                                              !city.ToUpper().Contains("STRYKOW") && 
+                                                              !city.ToUpper().Contains("DOBRA") && 
+                                                              !city.ToUpper().Contains("NIEZNANE") &&
+                                                              !statusDesc.Contains("BŁĄD");
+
+                                if (isDelivered || isOutsideStrykowPoland) {
+                                    isOkByUps = true;
+                                    upsStatusInfo = isDelivered ? "Doręczone" : $"W drodze ({city})";
+                                    upsDateLoc = $"{upsStatusInfo} - {DateTime.Now:dd-MM-yyyy}";
+                                } else {
+                                    upsDateLoc = foundInAk0 ? $"{lastLoc} {lastSeenDate:dd-MM-yyyy}" : $"Brak w AK0";
+                                }
+                            } else {
+                                upsDateLoc = foundInAk0 ? $"{lastLoc} {lastSeenDate:dd-MM-yyyy}" : $"Brak w AK0";
+                            }
+
+                            if (isOkByUps) {
+                                cell.CreateComment().AddText($"UPS OK: {upsDateLoc}");
+                            } else {
+                                // Zaznacz na czerwono, komentarz z datą ostatniego wystąpienia lub statusu
+                                cell.Style.Fill.BackgroundColor = XLColor.Salmon;
+                                string commentText = foundInAk0 ? $"{lastLoc} {lastSeenDate:dd-MM-yyyy}" : $"Brak w AK0 / Nieznana";
+                                cell.CreateComment().AddText(commentText);
+                            }
+                        }
+
+                        rowIndex++;
+                    }
+                    colIndex++;
+                }
+
+                wsReport.Columns().AdjustToContents();
+                string outPath = Path.Combine(unloadFolderPath, "Raport_Rozladunki_Boxy_" + DateTime.Now.ToString("ddMMyy_HHmm") + ".xlsx");
+                report.SaveAs(outPath);
+            }
         }
 
         private void AutoLoadPostcode() {
@@ -381,7 +676,7 @@ namespace Ak0Analyzer
                 string xml = "<?xml version=\"1.0\"?><AccessRequest><AccessLicenseNumber>" + upsLicense + "</AccessLicenseNumber><UserId>" + upsUser + "</UserId><Password>" + upsPass + "</Password></AccessRequest>" +
                              "<?xml version=\"1.0\"?><TrackRequest><Request><RequestAction>Track</RequestAction></Request><TrackingNumber>" + trackNum + "</TrackingNumber></TrackRequest>";
                 using (var client = new HttpClient()) {
-                    var resp = await client.PostAsync("https://www.ups.com/ups.app/xml/Track", new StringContent(xml, Encoding.UTF8, "application/x-www-form-urlencoded"));
+                    var resp = await client.PostAsync(upsApiUrl, new StringContent(xml, Encoding.UTF8, "application/x-www-form-urlencoded"));
                     var doc = XDocument.Parse(await resp.Content.ReadAsStringAsync());
                     
                     var shipment = doc.Descendants("Shipment").FirstOrDefault();
@@ -402,14 +697,32 @@ namespace Ak0Analyzer
             return new Tuple<string, string, string>("Błąd API", "---", "");
         }
 
-        private void LoadSettings() { if (File.Exists(settingsPath)) { var lines = File.ReadAllLines(settingsPath); if (lines.Length >= 3) { upsLicense = lines[0]; upsUser = lines[1]; upsPass = lines[2]; } } }
+        private void LoadSettings() { 
+            if (File.Exists(settingsPath)) { 
+                var lines = File.ReadAllLines(settingsPath); 
+                if (lines.Length >= 3) { upsLicense = lines[0]; upsUser = lines[1]; upsPass = lines[2]; }
+                if (lines.Length >= 4 && !string.IsNullOrWhiteSpace(lines[3])) { upsApiUrl = lines[3]; }
+            } 
+        }
+
         private void ShowSettingsWindow() {
-            Form f = new Form() { Text = "Ustawienia UPS", Size = new System.Drawing.Size(300, 250), StartPosition = FormStartPosition.CenterParent };
+            Form f = new Form() { Text = "Ustawienia UPS", Size = new System.Drawing.Size(350, 320), StartPosition = FormStartPosition.CenterParent };
             TextBox t1 = new TextBox() { Text = upsLicense, Dock = DockStyle.Top };
             TextBox t2 = new TextBox() { Text = upsUser, Dock = DockStyle.Top };
             TextBox t3 = new TextBox() { Text = upsPass, Dock = DockStyle.Top, UseSystemPasswordChar = true };
+            TextBox t4 = new TextBox() { Text = upsApiUrl, Dock = DockStyle.Top };
             Button b = new Button() { Text = "Zapisz", Dock = DockStyle.Bottom, Height = 40 };
-            b.Click += (s, e) => { upsLicense = t1.Text; upsUser = t2.Text; upsPass = t3.Text; File.WriteAllLines(settingsPath, new[] { upsLicense, upsUser, upsPass }); f.Close(); };
+            
+            b.Click += (s, e) => { 
+                upsLicense = t1.Text; 
+                upsUser = t2.Text; 
+                upsPass = t3.Text; 
+                if (!string.IsNullOrWhiteSpace(t4.Text)) upsApiUrl = t4.Text.Trim();
+                File.WriteAllLines(settingsPath, new[] { upsLicense, upsUser, upsPass, upsApiUrl }); 
+                f.Close(); 
+            };
+
+            f.Controls.Add(t4); f.Controls.Add(new Label { Text = "URL API UPS:", Dock = DockStyle.Top, Height = 25 });
             f.Controls.Add(t3); f.Controls.Add(new Label { Text = "Hasło UPS:", Dock = DockStyle.Top, Height = 25 });
             f.Controls.Add(t2); f.Controls.Add(new Label { Text = "User ID:", Dock = DockStyle.Top, Height = 25 });
             f.Controls.Add(t1); f.Controls.Add(new Label { Text = "Access License Number:", Dock = DockStyle.Top, Height = 25 });
