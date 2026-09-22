@@ -327,14 +327,18 @@ namespace Ak0Analyzer
                         bool isOkByUps = false;
                         string upsStatusInfo = "";
                         string upsDateLoc = "";
+                        string apiLastCity = "";
+                        string apiDescription = "";
 
                         if (!recentInAk0 && !returnedToGb && !isReleased) {
                             if (!string.IsNullOrEmpty(upsLicense)) {
                                 lblUnloadStatus.Text = $"Weryfikacja UPS API dla paczki: {pkg}...";
                                 Application.DoEvents();
                                 var upsRes = await GetUpsTracking(pkg);
-                                string statusDesc = upsRes.Item1.ToUpper();
-                                string city = upsRes.Item2;
+                                apiDescription = upsRes.Item1;
+                                apiLastCity = upsRes.Item2;
+                                string statusDesc = apiDescription.ToUpper();
+                                string city = apiLastCity;
 
                                 bool isDelivered = statusDesc.Contains("DELIVERED") || statusDesc.Contains("DORĘCZONA");
                                 bool isOutForDelivery = statusDesc.Contains("OUT FOR DELIVERY");
@@ -369,7 +373,16 @@ namespace Ak0Analyzer
                         } else {
                             // Problem / Brak w AK0 > 3 dni i brak potwierdzenia UPS/zwolnienia
                             cell.Style.Fill.BackgroundColor = XLColor.Salmon;
-                            string commentText = foundInAk0 ? $"{lastLoc} {lastSeenDate:dd-MM-yyyy}" : "Brak w AK0 / Nieznana";
+                            string commentText = "";
+                            if (!foundInAk0) {
+                                if (!string.IsNullOrEmpty(apiLastCity) && apiLastCity != "---") {
+                                    commentText = $"Brak w AK0 | API: {apiLastCity} - {apiDescription}";
+                                } else {
+                                    commentText = "Brak w AK0 / Nieznana";
+                                }
+                            } else {
+                                commentText = $"{lastLoc} {lastSeenDate:dd-MM-yyyy}";
+                            }
                             cell.CreateComment().AddText(commentText);
                         }
 
