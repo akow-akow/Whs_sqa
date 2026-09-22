@@ -53,14 +53,14 @@ namespace Ak0Analyzer
         {
             LoadSettings();
             this.Text = "AK0 Warehouse & Unload Quality Analyzer";
-            this.Size = new System.Drawing.Size(600, 950);
+            this.Size = new System.Drawing.Size(600, 850);
             this.StartPosition = FormStartPosition.CenterScreen;
 
             // Główny TabControl
             tabControlMain = new TabControl() { Dock = DockStyle.Fill };
             
-            tabAk0Analyzer = new TabPage("Analiza AK0 (Oryginał)");
-            tabUnloadAnalyzer = new TabPage("Rozładunki / Boxy UPS (Nowość)");
+            tabAk0Analyzer = new TabPage("Analiza AK0");
+            tabUnloadAnalyzer = new TabPage("Analiza boxów");
 
             BuildAk0Tab();
             BuildUnloadTab();
@@ -78,24 +78,24 @@ namespace Ak0Analyzer
         {
             FlowLayoutPanel topPanel = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 330, Padding = new Padding(10) };
             
-            btnSelectFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER AK0", Size = new System.Drawing.Size(265, 60), BackColor = System.Drawing.Color.LightSkyBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnSelectFolder = new Button() { Text = "📁WYBIERZ FOLDER AK0", Size = new System.Drawing.Size(265, 60), BackColor = System.Drawing.Color.LightSkyBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnSelectFolder.Click += (s, e) => SelectFolder();
             
-            btnLoadSchedule = new Button() { Text = "📅 2a. WCZYTAJ GRAFIK", Size = new System.Drawing.Size(265, 60), BackColor = System.Drawing.Color.NavajoWhite, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadSchedule = new Button() { Text = "📅WCZYTAJ GRAFIK", Size = new System.Drawing.Size(265, 60), BackColor = System.Drawing.Color.NavajoWhite, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadSchedule.Click += (s, e) => LoadScheduleWindow();
 
-            btnLoadReleased = new Button() { Text = "🚚 2b. PRZESYŁKI ZWOLNIONE (WIELE PLIKÓW DAT)", Size = new System.Drawing.Size(540, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadReleased = new Button() { Text = "🚚PRZESYŁKI ZWOLNIONE", Size = new System.Drawing.Size(540, 45), BackColor = System.Drawing.Color.LightSteelBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadReleased.Click += (s, e) => LoadReleasedWindow();
 
-            btnLoadPostcodes = new Button() { Text = "🗺️ 2c. WCZYTAJ POSTCODE.XML (RĘCZNIE)", Size = new System.Drawing.Size(540, 45), BackColor = System.Drawing.Color.Thistle, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            btnLoadPostcodes = new Button() { Text = "🗺️WCZYTAJ POSTCODE.XML (RĘCZNIE)", Size = new System.Drawing.Size(540, 45), BackColor = System.Drawing.Color.Thistle, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnLoadPostcodes.Click += (s, e) => LoadPostcodeXml(null);
             
-            btnSettings = new Button() { Text = "⚙️ USTAWIENIA UPS API & URL", Size = new System.Drawing.Size(540, 40), BackColor = System.Drawing.Color.LightGray, FlatStyle = FlatStyle.Flat };
+            btnSettings = new Button() { Text = "⚙️USTAWIENIA UPS API", Size = new System.Drawing.Size(540, 40), BackColor = System.Drawing.Color.LightGray, FlatStyle = FlatStyle.Flat };
             btnSettings.Click += (s, e) => ShowSettingsWindow();
 
             GroupBox gpFilters = new GroupBox() { Text = "Filtry magazynów (Początek nazwy)", Size = new System.Drawing.Size(540, 50) };
-            chkFilterI = new CheckBox() { Text = "Import (I...)", Checked = true, AutoSize = true, Location = new System.Drawing.Point(10, 20) };
-            chkFilterE = new CheckBox() { Text = "Export (E...)", Checked = true, AutoSize = true, Location = new System.Drawing.Point(170, 20) };
+            chkFilterI = new CheckBox() { Text = "Import (IWM...)", Checked = true, AutoSize = true, Location = new System.Drawing.Point(10, 20) };
+            chkFilterE = new CheckBox() { Text = "Export (EWM...)", Checked = true, AutoSize = true, Location = new System.Drawing.Point(170, 20) };
             chkFilterI.CheckedChanged += (s, e) => ApplyLocFilter();
             chkFilterE.CheckedChanged += (s, e) => ApplyLocFilter();
             gpFilters.Controls.Add(chkFilterI); gpFilters.Controls.Add(chkFilterE);
@@ -110,13 +110,13 @@ namespace Ak0Analyzer
             clbWarehouses = new CheckedListBox() { Dock = DockStyle.Fill, CheckOnClick = true, Font = new System.Drawing.Font("Segoe UI", 10) };
             
             Panel pnlOptions = new Panel() { Dock = DockStyle.Bottom, Height = 40, BackColor = System.Drawing.Color.WhiteSmoke };
-            chkEnableUPS = new CheckBox() { Text = "Automatyczna weryfikacja UPS API (Status + Kod)", AutoSize = true, Location = new System.Drawing.Point(10, 10), Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
+            chkEnableUPS = new CheckBox() { Text = "Weryfikuj poprzez UPS API (Status + Kod)", AutoSize = true, Location = new System.Drawing.Point(10, 10), Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             pnlOptions.Controls.Add(chkEnableUPS);
 
-            btnRun = new Button() { Text = "🚀 3. GENERUJ RAPORT", Dock = DockStyle.Bottom, Height = 70, BackColor = System.Drawing.Color.LightGreen, Enabled = false, Font = new System.Drawing.Font("Segoe UI", 11, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
+            btnRun = new Button() { Text = "🚀GENERUJ RAPORT🚀", Dock = DockStyle.Bottom, Height = 70, BackColor = System.Drawing.Color.LightGreen, Enabled = false, Font = new System.Drawing.Font("Segoe UI", 11, System.Drawing.FontStyle.Bold), FlatStyle = FlatStyle.Flat };
             btnRun.Click += BtnRun_Click;
 
-            lblStatus = new Label() { Text = "Gotowy", Dock = DockStyle.Bottom, Height = 40, TextAlign = System.Drawing.ContentAlignment.MiddleCenter, BackColor = System.Drawing.Color.WhiteSmoke, BorderStyle = BorderStyle.FixedSingle };
+            lblStatus = new Label() { Text = "Gotowy 👍", Dock = DockStyle.Bottom, Height = 40, TextAlign = System.Drawing.ContentAlignment.MiddleCenter, BackColor = System.Drawing.Color.WhiteSmoke, BorderStyle = BorderStyle.FixedSingle };
 
             tabAk0Analyzer.Controls.Add(clbWarehouses);
             tabAk0Analyzer.Controls.Add(new Label() { Text = " Magazyny do analizy:", Dock = DockStyle.Top, Height = 25, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) });
@@ -133,14 +133,14 @@ namespace Ak0Analyzer
             btnSelectUnloadFolder = new Button() { Text = "📁 1. WYBIERZ FOLDER Z PLIKAMI ROZŁADUNKOWYMI", Size = new System.Drawing.Size(530, 50), Location = new System.Drawing.Point(15, 15), BackColor = System.Drawing.Color.Moccasin, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnSelectUnloadFolder.Click += (s, e) => SelectUnloadFolder();
 
-            lblUnloadFolderPath = new Label() { Text = "Brak wybranego folderu z plikami rozładunkowymi.", Size = new System.Drawing.Size(530, 40), Location = new System.Drawing.Point(15, 75), TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            lblUnloadFolderPath = new Label() { Text = "Pliki rozładunkowe w formacie Brexit Import rozładunek z dnia DATA NUMER(y) BOX(ów)", Size = new System.Drawing.Size(530, 40), Location = new System.Drawing.Point(15, 75), TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
 
             btnSelectAk0UnloadFolder = new Button() { Text = "📁 2. WYBIERZ FOLDER Z PLIKAMI AK0 (DO WERYFIKACJI)", Size = new System.Drawing.Size(530, 50), Location = new System.Drawing.Point(15, 125), BackColor = System.Drawing.Color.LightSkyBlue, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 9, System.Drawing.FontStyle.Bold) };
             btnSelectAk0UnloadFolder.Click += (s, e) => SelectAk0UnloadFolder();
 
-            lblAk0UnloadFolderPath = new Label() { Text = "Brak wybranego folderu z plikami AK0.", Size = new System.Drawing.Size(530, 40), Location = new System.Drawing.Point(15, 185), TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            lblAk0UnloadFolderPath = new Label() { Text = "Pliki AK0 w formacie AK0 DD.MM.YYYYD", Size = new System.Drawing.Size(530, 40), Location = new System.Drawing.Point(15, 185), TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
 
-            btnRunUnload = new Button() { Text = "🚀 3. GENERUJ RAPORT ROZŁADUNKÓW / BOXÓW", Size = new System.Drawing.Size(530, 60), Location = new System.Drawing.Point(15, 235), BackColor = System.Drawing.Color.LightGreen, Enabled = false, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
+            btnRunUnload = new Button() { Text = "🚀 GENERUJ RAPORT BOXÓW 🚀", Size = new System.Drawing.Size(530, 60), Location = new System.Drawing.Point(15, 235), BackColor = System.Drawing.Color.LightGreen, Enabled = false, FlatStyle = FlatStyle.Flat, Font = new System.Drawing.Font("Segoe UI", 10, System.Drawing.FontStyle.Bold) };
             btnRunUnload.Click += BtnRunUnload_Click;
 
             pnlUnloadTop.Controls.Add(btnSelectUnloadFolder);
@@ -149,7 +149,7 @@ namespace Ak0Analyzer
             pnlUnloadTop.Controls.Add(lblAk0UnloadFolderPath);
             pnlUnloadTop.Controls.Add(btnRunUnload);
 
-            lblUnloadStatus = new Label() { Text = "Gotowy do analizy rozładunków.", Dock = DockStyle.Bottom, Height = 45, TextAlign = System.Drawing.ContentAlignment.MiddleCenter, BackColor = System.Drawing.Color.WhiteSmoke, BorderStyle = BorderStyle.FixedSingle };
+            lblUnloadStatus = new Label() { Text = "Gotowy do analizy boxów.", Dock = DockStyle.Bottom, Height = 45, TextAlign = System.Drawing.ContentAlignment.MiddleCenter, BackColor = System.Drawing.Color.WhiteSmoke, BorderStyle = BorderStyle.FixedSingle };
 
             tabUnloadAnalyzer.Controls.Add(pnlUnloadTop);
             tabUnloadAnalyzer.Controls.Add(lblUnloadStatus);
