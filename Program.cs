@@ -236,14 +236,11 @@ namespace Ak0Analyzer
             }
 
             // 2. Wczytanie plików rozładunkowych z hubu
-            // Nazwy np: "Brexit Import rozładunek z dnia 2026-09-21 UPST95421E UPST6182E"
             var unloadFiles = Directory.GetFiles(unloadFolderPath, "*.xlsx");
-            // Słownik: Box (np. UPST95421E) -> Lista numerów paczek
             Dictionary<string, List<string>> boxPackagesMap = new Dictionary<string, List<string>>();
 
             foreach (var file in unloadFiles) {
                 string fileName = Path.GetFileNameWithoutExtension(file);
-                // Wyciągnij wszystkie tokeny zaczynające się od UPST lub pasujące do wzorca boxa
                 var matches = Regex.Matches(fileName, @"(UPST\w+)", RegexOptions.IgnoreCase);
                 List<string> boxesInFile = new List<string>();
                 foreach (Match m in matches) {
@@ -253,10 +250,8 @@ namespace Ak0Analyzer
                 if (boxesInFile.Count == 0) continue;
 
                 using (var wb = new XLWorkbook(file)) {
-                    // Każdy box w pliku ma swój skoroszyt (zakładkę)
                     foreach (var ws in wb.Worksheets) {
                         string wsNameTrim = ws.Name.Trim().ToUpper();
-                        // Dopasuj arkusz do odpowiedniego boxa z nazwy pliku lub nazwy arkusza
                         string matchedBox = boxesInFile.FirstOrDefault(b => wsNameTrim.Contains(b)) ?? boxesInFile.First();
 
                         if (!boxPackagesMap.ContainsKey(matchedBox)) boxPackagesMap[matchedBox] = new List<string>();
@@ -264,9 +259,7 @@ namespace Ak0Analyzer
                         var range = ws.RangeUsed();
                         if (range == null) continue;
 
-                        // Pierwszy wiersz to nagłówek, więc pomijamy. Szukamy kolumny z paczkami (zakładamy kolumnę 1 lub 2, albo przeszukujemy wiersze)
                         foreach (var row in range.RowsUsed().Skip(1)) {
-                            // Szukamy w komórkach numeru paczki (zazwyczaj pierwsza lub druga kolumna)
                             string pkg = row.Cell(1).GetString().Trim();
                             if (string.IsNullOrEmpty(pkg) || pkg.Length < 5) {
                                 pkg = row.Cell(2).GetString().Trim();
@@ -303,6 +296,9 @@ namespace Ak0Analyzer
                         var cell = wsReport.Cell(rowIndex, colIndex);
                         cell.Value = pkg;
 
+                        // Sprawdzenie czy paczka jest w zwolnionych (z pliku .DAT)
+                        bool isReleased = releasedPackages.Contains(pkg);
+
                         // Analiza obecności paczki w AK0
                         bool foundInAk0 = packageAk0History.ContainsKey(pkg);
                         DateTime lastSeenDate = default(DateTime);
@@ -314,35 +310,25 @@ namespace Ak0Analyzer
                             lastLoc = history[lastSeenDate];
                         }
 
-                        // Warunek 1: Jeśli paczka MIAŁA w którymś AK0 lokalizację "EWMAGCFRTS" po czym jej nie ma -> zwrotka do GB (OK)
+                        // Warunek powrotu do GB (EWMAGCFRTS)
                         bool returnedToGb = false;
                         if (foundInAk0) {
                             foreach (var kv in packageAk0History[pkg]) {
                                 if (kv.Value.Equals("EWMAGCFRTS", StringComparison.OrdinalIgnoreCase)) {
-                                    // Sprawdź czy w późniejszych dniach zniknęła lub jest oznaczona
                                     returnedToGb = true; 
                                 }
                             }
-                            // Jeśli ostatnia znana lokalizacja to EWMAGCFRTS lub wyszła z niej
                             if (lastLoc.Equals("EWMAGCFRTS", StringComparison.OrdinalIgnoreCase)) returnedToGb = true;
                         }
 
-                        // Warunek 2: Sprawdzenie czy paczka jest obecna dzisiaj lub w ciągu ostatnich 3 dni w AK0
                         bool recentInAk0 = foundInAk0 && (today - lastSeenDate).TotalDays <= 3;
 
-                        if (recentInAk0 || returnedToGb) {
-                            // Jest OK - brak wyróżnienia czerwonym
-                            if (returnedToGb) {
-                                cell.CreateComment().AddText($"Zwrot do GB (EWMAGCFRTS) - Ostatnio: {lastSeenDate:dd-MM-yyyy}");
-                            } else {
-                                cell.CreateComment().AddText($"Obecna w AK0: {lastLoc} ({lastSeenDate:dd-MM-yyyy})");
-                            }
-                        } else {
-                            // Paczki nie ma w AK0 dłużej niż 3 dni -> Sprawdzamy makro doręczeń / UPS API
-                            bool isOkByUps = false;
-                            string upsStatusInfo = "Brak w AK0 > 3 dni";
-                            string upsDateLoc = "";
+                        // Dodatkowa weryfikacja przez UPS API (dla paczek nieobecnych w AK0 od ponad 3 dni lub nierozpoznanych)
+                        bool isOkByUps = false;
+                        string upsStatusInfo = "";
+                        string upsDateLoc = "";
 
+                        if (!recentInAk0 && !returnedToGb && !isReleased) {
                             if (!string.IsNullOrEmpty(upsLicense)) {
                                 lblUnloadStatus.Text = $"Weryfikacja UPS API dla paczki: {pkg}...";
                                 Application.DoEvents();
@@ -350,34 +336,41 @@ namespace Ak0Analyzer
                                 string statusDesc = upsRes.Item1.ToUpper();
                                 string city = upsRes.Item2;
 
-                                // jeśli paka ma skan gdzie indziej niż "Dobra Strykow" ale nadal w Polsce to ok
-                                // jeśli paczka jest doręczona to też ok
                                 bool isDelivered = statusDesc.Contains("DELIVERED") || statusDesc.Contains("DORĘCZONA");
+                                bool isOutForDelivery = statusDesc.Contains("OUT FOR DELIVERY");
                                 bool isOutsideStrykowPoland = !string.IsNullOrEmpty(city) && 
                                                               !city.ToUpper().Contains("STRYKOW") && 
                                                               !city.ToUpper().Contains("DOBRA") && 
                                                               !city.ToUpper().Contains("NIEZNANE") &&
                                                               !statusDesc.Contains("BŁĄD");
 
-                                if (isDelivered || isOutsideStrykowPoland) {
+                                if (isDelivered || isOutForDelivery || isOutsideStrykowPoland) {
                                     isOkByUps = true;
-                                    upsStatusInfo = isDelivered ? "Doręczone" : $"W drodze ({city})";
+                                    upsStatusInfo = isDelivered ? "Doręczone" : (isOutForDelivery ? "OUT FOR DELIVERY" : $"W drodze ({city})");
                                     upsDateLoc = $"{upsStatusInfo} - {DateTime.Now:dd-MM-yyyy}";
-                                } else {
-                                    upsDateLoc = foundInAk0 ? $"{lastLoc} {lastSeenDate:dd-MM-yyyy}" : $"Brak w AK0";
                                 }
-                            } else {
-                                upsDateLoc = foundInAk0 ? $"{lastLoc} {lastSeenDate:dd-MM-yyyy}" : $"Brak w AK0";
                             }
+                        }
 
-                            if (isOkByUps) {
+                        // Ocena końcowa statusu wiersza w raporcie boxów
+                        if (recentInAk0 || returnedToGb || isReleased || isOkByUps) {
+                            // Status OK -> zielony / błękitny lub brak czerwonego
+                            if (isReleased) {
+                                cell.Style.Fill.BackgroundColor = XLColor.LightSkyBlue;
+                                cell.CreateComment().AddText("Przesyłka zwolniona (z plików .DAT)");
+                            } else if (isOkByUps) {
+                                cell.Style.Fill.BackgroundColor = XLColor.LightGreen;
                                 cell.CreateComment().AddText($"UPS OK: {upsDateLoc}");
+                            } else if (returnedToGb) {
+                                cell.CreateComment().AddText($"Zwrot do GB (EWMAGCFRTS) - Ostatnio: {lastSeenDate:dd-MM-yyyy}");
                             } else {
-                                // Zaznacz na czerwono, komentarz z datą ostatniego wystąpienia lub statusu
-                                cell.Style.Fill.BackgroundColor = XLColor.Salmon;
-                                string commentText = foundInAk0 ? $"{lastLoc} {lastSeenDate:dd-MM-yyyy}" : $"Brak w AK0 / Nieznana";
-                                cell.CreateComment().AddText(commentText);
+                                cell.CreateComment().AddText($"Obecna w AK0: {lastLoc} ({lastSeenDate:dd-MM-yyyy})");
                             }
+                        } else {
+                            // Problem / Brak w AK0 > 3 dni i brak potwierdzenia UPS/zwolnienia
+                            cell.Style.Fill.BackgroundColor = XLColor.Salmon;
+                            string commentText = foundInAk0 ? $"{lastLoc} {lastSeenDate:dd-MM-yyyy}" : "Brak w AK0 / Nieznana";
+                            cell.CreateComment().AddText(commentText);
                         }
 
                         rowIndex++;
